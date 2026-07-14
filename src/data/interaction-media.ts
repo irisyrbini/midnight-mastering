@@ -16,8 +16,10 @@
 export type InteractionMedia = { type: 'image' | 'video'; src: string; caption?: string };
 
 export const INTERACTION_MEDIA: Record<string, InteractionMedia> = {
-  // --- Examples: drop matching files into public/assets/interactions/ and uncomment ---
+  // Your uploaded clip — shows when you interact with the music production desk.
+  musicDesk: { type: 'video', src: '/assets/interactions/desk.mp4' },
+
+  // --- Add more the same way: drop a file in public/assets/interactions/ then add a line here ---
   // vodka: { type: 'image', src: '/assets/interactions/vodka.jpg', caption: 'Cheap vodka, half gone.' },
   // portasound: { type: 'video', src: '/assets/interactions/portasound.mp4' },
-  // musicDesk: { type: 'image', src: '/assets/interactions/desk.png' },
 };
