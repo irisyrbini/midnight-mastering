@@ -1,0 +1,36 @@
+import type { Interaction } from '@/types/game';
+
+/** Every room prop is a gameplay node, never painted-in background decoration. */
+export const INTERACTIONS: Interaction[] = [
+  { id: 'musicDesk', label: 'Music production desk', description: 'Sit down and face the unfinished record.', changes: { creativity: 4, energy: -2 }, action: 'open-daw', emotionalEffects: [{ node: 'obsession', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }] },
+  { id: 'chair', label: 'Studio chair', description: 'Settle into the chair. Interact again to stand.', changes: {}, action: 'sit', emotionalEffects: [{ node: 'burnout', direction: 'down' }] },
+  { id: 'instrumentTable', label: 'Instrument table', description: 'Synths and keyboards, within reach.', changes: { creativity: 3 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }] },
+  { id: 'dualMonitors', label: 'Computer', description: 'Wake the screens and open the session.', changes: { creativity: 3, energy: -2 }, action: 'open-daw', emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'obsession', direction: 'up' }] },
+  { id: 'laptop', label: 'Laptop', description: 'Open the DAW session.', changes: {}, action: 'open-daw', emotionalEffects: [{ node: 'obsession', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }] },
+  { id: 'studioMonitors', label: 'White studio monitors', description: 'Listen back without hiding from the flaws.', changes: { creativity: 6, energy: -2 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'hope', direction: 'up' }] },
+  { id: 'portasound', label: 'Compact PortaSound', description: 'Play a small, imperfect melody.', changes: { creativity: 8, energy: -2 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'love', direction: 'up' }] },
+  { id: 'sk5', label: 'Sample keyboard', description: 'Find a strange texture in an old sampler.', changes: { creativity: 9, hunger: -1 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'hope', direction: 'up' }] },
+  { id: 'modularSynths', label: 'Modular synth rack', description: 'Patch cables until the room becomes a signal.', changes: { creativity: 12, energy: -5 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'obsession', direction: 'up' }] },
+  { id: 'audioInterface', label: 'Audio interface', description: 'Route the sound correctly and begin again.', changes: { creativity: 5, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }] },
+  { id: 'acousticGuitar', label: 'Acoustic guitar', description: 'Play something only you need to hear.', changes: { creativity: 10, energy: -3, love: 2 }, emotionalEffects: [{ node: 'love', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }] },
+  { id: 'electricGuitar', label: 'White electric guitar', description: 'Turn the amp down and let a chord ring.', changes: { creativity: 9, energy: -3 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'hope', direction: 'up' }] },
+  { id: 'bed', label: 'Bed', description: 'Lie down and rest a while. Interact again to get up.', changes: { energy: 25, hygiene: -2, social: -3 }, action: 'lie', emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
+  { id: 'miniFridge', label: 'Mini fridge', description: 'Find something cold to eat.', changes: { hunger: 24, energy: 3 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
+  { id: 'shelves', label: 'Shelves', description: 'Sort through old records, books, and tape.', changes: { creativity: 3, social: -1 }, emotionalEffects: [{ node: 'love', direction: 'up' }, { node: 'hope', direction: 'up' }] },
+  { id: 'ledLights', label: 'LED ceiling lights', description: 'Change the room into a kinder color.', changes: { creativity: 2, energy: 1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
+  { id: 'posters', label: 'Posters', description: 'Remember why you wanted this life.', changes: { creativity: 4, love: 2 }, emotionalEffects: [{ node: 'love', direction: 'up' }, { node: 'hope', direction: 'up' }] },
+  { id: 'window', label: 'Night window', description: 'Look out at the city and feel less alone.', changes: { social: 5, creativity: 2 }, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }] },
+  { id: 'ashtray', label: 'Ashtray', description: 'Clear the desk; the smell stays.', changes: { hygiene: -4, energy: 1 }, emotionalEffects: [{ node: 'addiction', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
+  { id: 'cigarettes', label: 'Cigarettes', description: 'Step outside for a brief calm. Inspiration comes quickly, then fades.', changes: { energy: 3, creativity: 2, hunger: -5, hygiene: -6 }, emotionalEffects: [{ node: 'addiction', direction: 'up' }, { node: 'burnout', direction: 'down' }], inspirationMinutes: 30 },
+  { id: 'vodka', label: 'Vodka bottle', description: 'Pour a drink and soften the edges.', changes: { social: 4, love: -5, energy: -8, hygiene: -4 }, emotionalEffects: [{ node: 'addiction', direction: 'up' }, { node: 'hope', direction: 'down' }] },
+  { id: 'redBull', label: 'Energy drink', description: 'Borrow energy from tomorrow.', changes: { energy: 10, hunger: -3 }, emotionalEffects: [{ node: 'obsession', direction: 'up' }, { node: 'burnout', direction: 'up' }] },
+  { id: 'pillBottle', label: 'Pill bottle', description: 'Follow the label and take a moment to breathe.', changes: { energy: 2, hygiene: 1 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
+  { id: 'lyricNotebook', label: 'Lyric notebook', description: 'Write down the sentence you keep avoiding.', changes: { creativity: 8, energy: -1 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'hope', direction: 'up' }] },
+  { id: 'switch', label: 'Handheld console', description: 'Take a short, uncomplicated break.', changes: { energy: 3, social: 1, creativity: -1 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'obsession', direction: 'down' }] },
+  { id: 'cables', label: 'Cable pile', description: 'Untangle one small problem.', changes: { creativity: 2, hygiene: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
+  { id: 'bathroom', label: 'Bathroom door', description: 'Take a long shower and reset.', changes: { hygiene: 30, energy: -3, creativity: 2 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
+  { id: 'entrance', label: 'Entrance', description: 'Step into the night and be around other people.', changes: { social: 20, energy: -3, hygiene: -1 }, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
+  { id: 'closet', label: 'Closet', description: 'Choose clothes that make leaving possible.', changes: { hygiene: 3, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
+];
+
+export const interactionById = Object.fromEntries(INTERACTIONS.map((item) => [item.id, item]));
