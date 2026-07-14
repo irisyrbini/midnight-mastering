@@ -1,7 +1,7 @@
 'use client';
 
 import * as THREE from 'three';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Sparkles } from '@react-three/drei';
 import type { StudioObject } from '@/data/studio-layout';
@@ -111,21 +111,35 @@ function SlidingCloset() {
   </group>;
 }
 
-/** Entrance door whose leaf swings open (animated) when `entranceOpen` is set. */
+/** Entrance door: swings open when `entranceOpen`, goes translucent while open, and auto-closes after a while. */
+const ENTRANCE_AUTOCLOSE_MS = 5000;
 function EntranceDoor() {
   const open = useGameStore((state) => state.entranceOpen);
+  const setEntranceOpen = useGameStore((state) => state.setEntranceOpen);
   const leaf = useRef<THREE.Group>(null);
+  const leafMat = useRef<THREE.MeshStandardMaterial>(null);
+  // Auto-close a while after opening.
+  useEffect(() => {
+    if (!open) return;
+    const timer = setTimeout(() => setEntranceOpen(false), ENTRANCE_AUTOCLOSE_MS);
+    return () => clearTimeout(timer);
+  }, [open, setEntranceOpen]);
   useFrame(() => {
-    if (!leaf.current) return;
-    const target = open ? -Math.PI * 0.62 : 0;
-    leaf.current.rotation.y += (target - leaf.current.rotation.y) * 0.16;
+    if (leaf.current) {
+      const target = open ? -Math.PI * 0.62 : 0;
+      leaf.current.rotation.y += (target - leaf.current.rotation.y) * 0.16;
+    }
+    if (leafMat.current) {
+      const target = open ? 0.28 : 1; // fade the open door to translucent
+      leafMat.current.opacity += (target - leafMat.current.opacity) * 0.16;
+    }
   });
   return <group>
     <mesh position={[0, 1.2, 0]} castShadow><boxGeometry args={[1.25, 2.4, 0.14]} /><meshStandardMaterial color="#2a2f38" /></mesh>
     <mesh position={[0, 1.2, -0.05]}><planeGeometry args={[1.02, 2.16]} /><meshStandardMaterial color="#05070c" /></mesh>
     <group ref={leaf} position={[-0.52, 1.2, 0.06]}>
-      <mesh position={[0.5, 0, 0]} castShadow><boxGeometry args={[1.0, 2.15, 0.08]} /><meshStandardMaterial color="#b73545" /></mesh>
-      <mesh position={[0.9, -0.08, 0.06]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} /></mesh>
+      <mesh position={[0.5, 0, 0]} castShadow><boxGeometry args={[1.0, 2.15, 0.08]} /><meshStandardMaterial ref={leafMat} color="#b73545" transparent opacity={1} /></mesh>
+      <mesh position={[0.9, -0.08, 0.06]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} transparent /></mesh>
     </group>
   </group>;
 }

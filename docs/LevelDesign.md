@@ -40,7 +40,9 @@ The player is clamped to `x ∈ [90, 1190]`, `y ∈ [410, 590]` (`clampToRoom`, 
 - `bed` moved beside the closet on the right wall and **angled** (`rotationY: π/2`); it uses `action: 'lie'` so interacting lays the producer down (see [Gameplay.md](Gameplay.md) §4).
 - `closet` is a **sliding-door wardrobe** (`SlidingCloset`) mounted flush to the right wall.
 - `ledLights` recolours with the crystal (`LedStrip`, red→yellow→green); the `window` gained a **starfield** (drei `Sparkles` + bloom-catching bright stars).
-- Note: the orbit camera is fixed on room centre, so edge furniture (the bed) frames the seated/lying producer near the screen edge — orbit to view.
+- `bathroom` moved to the **right wall** beside the closet (`rotationY: -π/2`, same side as the closet); `miniFridge` moved to sit **next to the desk's right corner**; `entrance` moved further out to the **front-left corner** for more central floor space.
+- The `entrance` door goes **translucent while open** (leaf opacity lerps to ~0.28) and **auto-closes after `ENTRANCE_AUTOCLOSE_MS` (5s)** via a timer in `EntranceDoor`.
+- Note: the orbit camera is fixed on room centre, so edge furniture (bed, right-wall doors) frames the producer near the screen edge — orbit to view.
 
 ## 7. Earlier revision log
 

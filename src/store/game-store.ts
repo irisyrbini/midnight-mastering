@@ -34,6 +34,7 @@ type GameState = GameSnapshot & {
   movePlayer: (direction: { x: number; y: number }) => void;
   setMoveTarget: (target: { x: number; y: number; selectId?: string }) => void;
   setRunning: (running: boolean) => void;
+  setEntranceOpen: (open: boolean) => void;
   stepMovement: (deltaMs: number) => void;
   selectObject: (id?: string) => void;
   closeVideo: () => void;
@@ -126,6 +127,7 @@ export const useGameStore = create<GameState>((set) => ({
   }),
   setMoveTarget: (target) => set((state) => (state.phase === 'playing' ? { moveTarget: { ...clampToRoom(target), selectId: target.selectId }, seated: false, lyingDown: false } : state)),
   setRunning: (running) => set((state) => (state.running === running ? state : { running })),
+  setEntranceOpen: (entranceOpen) => set((state) => (state.entranceOpen === entranceOpen ? state : { entranceOpen })),
   stepMovement: (deltaMs) => set((state) => {
     if (state.phase !== 'playing' || !state.moveTarget) return state;
     const step = WALK_SPEED * (state.running ? 1.85 : 1) * (deltaMs / 1000);
