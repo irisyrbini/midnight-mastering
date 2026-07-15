@@ -31,7 +31,7 @@ const GUITAR_EXTRUDE = { depth: 0.15, bevelEnabled: false };
  */
 export const DESK_Y = 1.2;
 export const DESKTOP_IDS = new Set([
-  'dualMonitors', 'laptop', 'studioMonitors', 'audioInterface', 'lyricNotebook', 'ashtray', 'cigarettes', 'vodka', 'redBull', 'pillBottle',
+  'dualMonitors', 'laptop', 'studioMonitors', 'audioInterface', 'lyricNotebook', 'ashtray', 'cigarettes', 'vodka', 'redBull', 'pillBottle', 'mic', 'phone',
 ]);
 
 /** Second table: synths/keyboards (every instrument except the guitars) sit on this surface. */
@@ -111,6 +111,32 @@ function SlidingCloset() {
   </group>;
 }
 
+/** Mini fridge: the door swings open and a warm orange interior light glows while `fridgeOpen`. */
+function Fridge() {
+  const open = useGameStore((state) => state.fridgeOpen);
+  const door = useRef<THREE.Group>(null);
+  const glow = useRef<THREE.PointLight>(null);
+  useFrame(() => {
+    if (door.current) door.current.rotation.y += ((open ? -Math.PI * 0.6 : 0) - door.current.rotation.y) * 0.16;
+    if (glow.current) glow.current.intensity += ((open ? 6 : 0) - glow.current.intensity) * 0.18;
+  });
+  return <group>
+    {/* cabinet + dark interior */}
+    <mesh position={[0, 0.7, -0.02]} castShadow><boxGeometry args={[0.9, 1.4, 0.8]} /><meshStandardMaterial color="#a8aeb6" metalness={0.3} roughness={0.4} /></mesh>
+    <mesh position={[0, 0.7, 0.18]}><boxGeometry args={[0.78, 1.24, 0.5]} /><meshStandardMaterial color="#161a1e" /></mesh>
+    {/* interior shelves + a couple of items, lit orange when open */}
+    <mesh position={[0, 0.95, 0.2]}><boxGeometry args={[0.7, 0.03, 0.42]} /><meshStandardMaterial color="#2a2f34" /></mesh>
+    <mesh position={[-0.15, 0.62, 0.2]}><cylinderGeometry args={[0.06, 0.06, 0.28, 10]} /><meshStandardMaterial color="#6d9c7b" /></mesh>
+    <mesh position={[0.14, 1.12, 0.2]}><cylinderGeometry args={[0.06, 0.06, 0.22, 10]} /><meshStandardMaterial color="#d05e55" /></mesh>
+    <pointLight ref={glow} position={[0, 0.75, 0.34]} color="#ff8a2a" intensity={0} distance={2.4} />
+    {/* hinged door on the left, opaque metal */}
+    <group ref={door} position={[-0.45, 0.7, 0.42]}>
+      <mesh position={[0.45, 0, 0]} castShadow><boxGeometry args={[0.9, 1.36, 0.08]} /><meshStandardMaterial color="#b9bfc6" metalness={0.35} roughness={0.4} /></mesh>
+      <mesh position={[0.8, 0.1, 0.06]}><boxGeometry args={[0.05, 0.4, 0.05]} /><meshStandardMaterial color="#3a3f46" metalness={0.5} /></mesh>
+    </group>
+  </group>;
+}
+
 /** Entrance door: swings open when `entranceOpen`, goes translucent while open, and auto-closes after a while. */
 const ENTRANCE_AUTOCLOSE_MS = 5000;
 function EntranceDoor() {
@@ -141,6 +167,35 @@ function EntranceDoor() {
       <mesh position={[0.5, 0, 0]} castShadow><boxGeometry args={[1.0, 2.15, 0.08]} /><meshStandardMaterial ref={leafMat} color="#b73545" transparent opacity={1} /></mesh>
       <mesh position={[0.9, -0.08, 0.06]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} transparent /></mesh>
     </group>
+  </group>;
+}
+
+/** Night window with a starfield; its glass pane tilts open (awning-style) while `windowOpen`. */
+function WindowUnit() {
+  const open = useGameStore((state) => state.windowOpen);
+  const pane = useRef<THREE.Group>(null);
+  useFrame(() => { if (pane.current) pane.current.rotation.x += ((open ? -0.5 : 0) - pane.current.rotation.x) * 0.14; });
+  return <group position={[0, 2.2, 0]}>
+    <mesh><boxGeometry args={[3.0, 1.9, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    <mesh position={[0, 0, 0.05]}><planeGeometry args={[2.7, 1.6]} /><meshStandardMaterial color="#0a1224" emissive="#0e1c34" emissiveIntensity={open ? 0.9 : 0.5} toneMapped={false} /></mesh>
+    <group position={[0, 0.2, 0.12]}><Sparkles count={46} scale={[2.5, 1.35, 0.25]} size={2.6} speed={0.35} color="#dfe8ff" /></group>
+    {[[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, 0.1]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
+    {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, 0.09]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
+    {/* openable glass pane, hinged at the bottom */}
+    <group ref={pane} position={[0, -0.75, 0.13]}>
+      <mesh position={[0, 0.75, 0]}><boxGeometry args={[2.5, 1.5, 0.04]} /><meshStandardMaterial color="#6f9fc0" transparent opacity={0.22} metalness={0.3} roughness={0.1} /></mesh>
+      <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[0.05, 1.5, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
+      <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[2.5, 0.05, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
+    </group>
+  </group>;
+}
+
+/** Wall poster with two colour panels. */
+function Poster({ top, bottom }: { top: string; bottom: string }) {
+  return <group position={[0, 2.05, 0]}>
+    <mesh><boxGeometry args={[1.1, 1.4, 0.05]} /><meshStandardMaterial color="#241b2b" /></mesh>
+    <mesh position={[0, 0.24, 0.03]}><planeGeometry args={[0.9, 0.72]} /><meshStandardMaterial color={top} emissive={top} emissiveIntensity={0.14} /></mesh>
+    <mesh position={[0, -0.42, 0.03]}><planeGeometry args={[0.9, 0.42]} /><meshStandardMaterial color={bottom} /></mesh>
   </group>;
 }
 
@@ -197,10 +252,28 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       </group>
     </group>;
 
+    // Metallic red audio interface.
     case 'audioInterface': return <group position={[0, DESK_Y, 0]}>
-      <mesh position={[0, 0.12, 0]} castShadow><boxGeometry args={[0.52, 0.22, 0.4]} /><meshStandardMaterial color="#2a2f38" metalness={0.5} roughness={0.4} /></mesh>
-      <mesh position={[0.15, 0.24, 0.1]}><cylinderGeometry args={[0.06, 0.06, 0.05, 12]} /><meshStandardMaterial color="#b73545" emissive="#b73545" emissiveIntensity={0.7} /></mesh>
+      <mesh position={[0, 0.12, 0]} castShadow><boxGeometry args={[0.52, 0.22, 0.4]} /><meshStandardMaterial color="#c0392b" metalness={0.85} roughness={0.28} /></mesh>
+      <mesh position={[0.15, 0.24, 0.1]}><cylinderGeometry args={[0.06, 0.06, 0.05, 12]} /><meshStandardMaterial color="#e7e1d5" metalness={0.4} /></mesh>
       <mesh position={[-0.1, 0.24, 0.1]}><cylinderGeometry args={[0.05, 0.05, 0.05, 12]} /><meshStandardMaterial color="#d6a447" /></mesh>
+      <mesh position={[0.22, 0.24, -0.06]}><sphereGeometry args={[0.02, 8, 8]} /><meshStandardMaterial color="#5fe08a" emissive="#5fe08a" emissiveIntensity={2} toneMapped={false} /></mesh>
+    </group>;
+
+    // Condenser mic on a small desk stand, with a record LED.
+    case 'mic': return <group position={[0, DESK_Y, 0]}>
+      <mesh position={[0, 0.03, 0]} castShadow><cylinderGeometry args={[0.14, 0.16, 0.06, 16]} /><meshStandardMaterial color="#20242c" metalness={0.4} roughness={0.4} /></mesh>
+      <mesh position={[0, 0.32, 0]}><cylinderGeometry args={[0.025, 0.025, 0.55, 10]} /><meshStandardMaterial color="#3a3f46" metalness={0.6} /></mesh>
+      <mesh position={[0, 0.68, 0.02]} castShadow><cylinderGeometry args={[0.09, 0.09, 0.34, 16]} /><meshStandardMaterial color="#2b2f36" metalness={0.5} roughness={0.35} /></mesh>
+      <mesh position={[0, 0.86, 0.02]}><sphereGeometry args={[0.095, 14, 12]} /><meshStandardMaterial color="#5a5f66" metalness={0.7} roughness={0.3} /></mesh>
+      <mesh position={[0, 0.6, 0.11]}><sphereGeometry args={[0.02, 8, 8]} /><meshStandardMaterial color="#ff3b3b" emissive="#ff3b3b" emissiveIntensity={2} toneMapped={false} /></mesh>
+    </group>;
+
+    // Phone lying flat on the desk, screen glowing.
+    case 'phone': return <group position={[0, DESK_Y, 0]} rotation={[0, 0.2, 0]}>
+      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.34, 0.7, 0.03]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
+      <mesh position={[0, 0.036, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.3, 0.64]} /><meshStandardMaterial color="#2a3550" emissive="#3a4a70" emissiveIntensity={0.9} toneMapped={false} /></mesh>
+      <mesh position={[-0.1, 0.03, -0.22]}><boxGeometry args={[0.1, 0.02, 0.1]} /><meshStandardMaterial color="#1a1d24" /></mesh>
     </group>;
 
     case 'lyricNotebook': return <group position={[0, DESK_Y, 0]} rotation={[0, 0.3, 0]}>
@@ -225,24 +298,12 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     </group>;
     case 'redBull': return <mesh position={[0, DESK_Y + 0.24, 0]} castShadow><cylinderGeometry args={[0.13, 0.13, 0.46, 16]} /><meshStandardMaterial color="#d05e55" metalness={0.3} roughness={0.4} /></mesh>;
 
-    case 'window': return <group position={[0, 2.2, 0]}>
-      <mesh><boxGeometry args={[3.0, 1.9, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
-      {/* deep night sky */}
-      <mesh position={[0, 0, 0.05]}><planeGeometry args={[2.7, 1.6]} /><meshStandardMaterial color="#0a1224" emissive="#0e1c34" emissiveIntensity={0.5} toneMapped={false} /></mesh>
-      {/* twinkling starlight + a few bright stars that catch the bloom */}
-      <group position={[0, 0.2, 0.12]}><Sparkles count={46} scale={[2.5, 1.35, 0.25]} size={2.6} speed={0.35} color="#dfe8ff" /></group>
-      {[[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, 0.1]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
-      <mesh position={[0, 0, 0.13]}><boxGeometry args={[0.06, 1.6, 0.06]} /><meshStandardMaterial color="#16202e" /></mesh>
-      <mesh position={[0, 0, 0.13]}><boxGeometry args={[2.7, 0.06, 0.06]} /><meshStandardMaterial color="#16202e" /></mesh>
-      {/* distant city lights along the horizon */}
-      {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, 0.09]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
-    </group>;
+    case 'window': return <WindowUnit />;
 
-    case 'posters': return <group position={[0, 2.05, 0]}>
-      <mesh><boxGeometry args={[1.1, 1.4, 0.05]} /><meshStandardMaterial color="#241b2b" /></mesh>
-      <mesh position={[0, 0.24, 0.03]}><planeGeometry args={[0.9, 0.72]} /><meshStandardMaterial color="#b8708a" emissive="#5a2f3f" emissiveIntensity={0.25} /></mesh>
-      <mesh position={[0, -0.42, 0.03]}><planeGeometry args={[0.9, 0.42]} /><meshStandardMaterial color="#4f6f8c" /></mesh>
-    </group>;
+    case 'posters': return <Poster top="#b8708a" bottom="#4f6f8c" />;
+    case 'posters2': return <Poster top="#5a86a0" bottom="#2f4a5a" />;
+    case 'posters3': return <Poster top="#c0993f" bottom="#5c4a2e" />;
+    case 'posters4': return <Poster top="#8a6fb0" bottom="#453560" />;
 
     case 'ledLights': return <LedStrip />;
 
@@ -280,11 +341,7 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[0.3, 0.5, 0.12]} castShadow><boxGeometry args={[1.44, 0.16, 1.44]} /><meshStandardMaterial color="#3f5063" /></mesh>
     </group>;
 
-    case 'miniFridge': return <group>
-      <mesh position={[0, 0.7, 0]} castShadow><boxGeometry args={[0.9, 1.4, 0.85]} /><meshStandardMaterial color="#a8aeb6" metalness={0.3} roughness={0.4} /></mesh>
-      <mesh position={[0, 1.05, 0.43]}><boxGeometry args={[0.85, 0.02, 0.02]} /><meshStandardMaterial color="#6a7078" /></mesh>
-      <mesh position={[0.35, 0.9, 0.44]}><boxGeometry args={[0.05, 0.32, 0.05]} /><meshStandardMaterial color="#40454c" /></mesh>
-    </group>;
+    case 'miniFridge': return <Fridge />;
 
     case 'bathroom': return <Door color="#456473" />;
     case 'entrance': return <EntranceDoor />;

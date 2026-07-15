@@ -25,6 +25,9 @@ type GameState = GameSnapshot & {
   lyingDown: boolean;
   running: boolean;
   entranceOpen: boolean;
+  fridgeOpen: boolean;
+  windowOpen: boolean;
+  stress: number;
   selectedObjectId?: string;
   activeVideoId?: string;
   ending: Ending;
@@ -99,6 +102,9 @@ const initialSession = () => ({
   lyingDown: false,
   running: false,
   entranceOpen: false,
+  fridgeOpen: false,
+  windowOpen: false,
+  stress: 40,
   selectedObjectId: undefined as string | undefined,
   activeVideoId: undefined as string | undefined,
   ending: null as Ending,
@@ -150,10 +156,14 @@ export const useGameStore = create<GameState>((set) => ({
     let needs = applyNeedChange(state.needs, Object.fromEntries(Object.entries(decayPerGameMinute).map(([key, value]) => [key, -value * gameMinutes])));
     needs = applyNeedChange(needs, Object.fromEntries(Object.entries(emotionalNeedDrift(state.emotionalGraph)).map(([key, value]) => [key, value * gameMinutes])));
     const totalMinutes = state.clock.minuteOfDay + gameMinutes;
+    // Stress creeps up over the night — faster under burnout/obsession/loneliness and while grinding, easier when in flow.
+    const g = state.emotionalGraph;
+    const stressDrift = 0.03 + (g.burnout === 'high' ? 0.07 : 0) + (g.obsession === 'high' ? 0.04 : 0) + (g.loneliness === 'high' ? 0.03 : 0) - (g.creativeFlow === 'high' ? 0.03 : 0) + (state.workingOnMusic ? 0.14 : 0);
     const base = {
       elapsedMs: state.elapsedMs + deltaMs,
       needs,
       clock: { day: state.clock.day + Math.floor(totalMinutes / 1440), minuteOfDay: totalMinutes % 1440 },
+      stress: clamp(state.stress + stressDrift * gameMinutes),
     };
     // Session-frame outcome: a win halts the run immediately; sustained rock-bottom wellbeing collapses it.
     const sessionFrame = (finalNeeds: ProducerNeeds, won: boolean) => {
@@ -205,11 +215,26 @@ export const useGameStore = create<GameState>((set) => ({
     if (interaction.action === 'lie') {
       const lyingDown = !state.lyingDown;
       return { lyingDown, seated: false, playerPosition: lyingDown ? LIE_POSITION : state.playerPosition, moveTarget: null,
-        needs: lyingDown ? applyNeedChange(state.needs, interaction.changes) : state.needs, lastInteraction: interaction, emotionalGraph, crystal };
+        needs: lyingDown ? applyNeedChange(state.needs, interaction.changes) : state.needs,
+        stress: lyingDown ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal };
+    }
+    // The fridge and the window toggle open/closed. Opening applies their effect; no playback modal, so Enter closes them again.
+    if (interaction.action === 'fridge') {
+      const fridgeOpen = !state.fridgeOpen;
+      return { fridgeOpen, seated: false, lyingDown: false,
+        needs: fridgeOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
+        stress: fridgeOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal };
+    }
+    if (interaction.action === 'window') {
+      const windowOpen = !state.windowOpen;
+      return { windowOpen, seated: false, lyingDown: false,
+        needs: windowOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
+        stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal };
     }
     // Any other interaction stands the producer up. The entrance swings its door open.
     const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
-    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, entranceOpen };
-    return { needs: applyNeedChange(state.needs, interaction.changes), activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, entranceOpen };
+    const stress = clamp(state.stress + (interaction.stressDelta ?? 0));
+    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, entranceOpen, stress };
+    return { needs: applyNeedChange(state.needs, interaction.changes), activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, entranceOpen, stress };
   }),
 }));

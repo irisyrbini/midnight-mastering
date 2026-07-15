@@ -32,9 +32,11 @@ export type Interaction = {
   label: string;
   description: string;
   changes: NeedChange;
-  action?: 'open-daw' | 'sit' | 'lie';
+  action?: 'open-daw' | 'sit' | 'lie' | 'fridge' | 'window';
   emotionalEffects?: EmotionalEffect[];
   inspirationMinutes?: number;
+  /** Change to the stress gauge, applied on interact (negative = relief). */
+  stressDelta?: number;
 };
 
 export type EmotionalVariable = 'loneliness' | 'burnout' | 'hope' | 'love' | 'obsession' | 'addiction' | 'creativeFlow';

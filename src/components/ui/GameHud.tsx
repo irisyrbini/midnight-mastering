@@ -27,6 +27,7 @@ function formatTime(minuteOfDay: number) {
 /** React overlay for readable controls, menus, and status—not world rendering. */
 export function GameHud() {
   const needs = useGameStore((state) => state.needs);
+  const stress = useGameStore((state) => state.stress);
   const clock = useGameStore((state) => state.clock);
   const lastInteraction = useGameStore((state) => state.lastInteraction);
   const crystal = useGameStore((state) => state.crystal);
@@ -46,6 +47,10 @@ export function GameHud() {
         <div className="mb-0.5 flex justify-between text-xs text-paper"><span>{label}</span><span className="font-mono text-paper/65">{Math.round(needs[key])}</span></div>
         <div className="h-1.5 overflow-hidden rounded-full border border-paper/35 bg-black/25"><div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${needs[key]}%`, backgroundColor: color }} /></div>
       </div>)}</div>
+      <div className="mt-3 border-t border-paper/20 pt-2">
+        <div className="mb-0.5 flex justify-between text-xs"><span className="text-paper">Stress</span><span className="font-mono text-paper/65">{Math.round(stress)}</span></div>
+        <div className="h-2 overflow-hidden rounded-full border border-paper/35 bg-black/25"><div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${stress}%`, backgroundColor: stress > 66 ? '#d84f59' : stress > 33 ? '#d6a447' : '#6d9c7b' }} /></div>
+      </div>
     </aside>
     <aside className="pointer-events-none absolute right-5 top-5 rounded-xl border border-paper/45 bg-night/85 px-5 py-4 text-right shadow-2xl backdrop-blur-sm">
       <p className="text-xs tracking-[0.18em] text-paper/60">DAY {clock.day}</p><p className="mt-1 font-mono text-xl text-paper">{formatTime(clock.minuteOfDay)}</p>

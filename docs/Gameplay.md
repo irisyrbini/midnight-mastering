@@ -2,6 +2,10 @@
 
 > Source of truth for mechanics. Values below mirror `src/store/game-store.ts`, `src/data/interactions.ts`, and `src/game/simulation/`. If code and this file disagree, treat it as a bug in one of them.
 
+## 0. Stress
+
+A single **stress** gauge (0–100) sits under the needs in the HUD. It creeps up over the night — faster under high burnout/obsession/loneliness and while working on music, slower in creative flow — and is relieved by calming interactions via each interaction's `stressDelta` (opening the **window** is the big one, −22; bed, entrance, handheld console also help; energy drinks/phone raise it). See `game-store.ts` (`stress`, `stressDrift`) and `Interaction.stressDelta`.
+
 ## 1. Needs
 
 Six needs, each `0–100`, shown in the HUD status rail. Defined in `ProducerNeeds` (`src/types/game.ts`).

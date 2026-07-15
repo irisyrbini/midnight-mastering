@@ -48,9 +48,14 @@ function UpperBody({ hipY }: { hipY: number }) {
     <mesh position={[0, 0.68, 0]} scale={[1, 0.62, 0.9]} castShadow><sphereGeometry args={[0.36, 18, 14]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
     <mesh position={[-0.36, 0.36, 0.02]} rotation={[0.1, 0, 0.16]} castShadow><capsuleGeometry args={[0.1, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
     <mesh position={[0.36, 0.36, 0.02]} rotation={[0.1, 0, -0.16]} castShadow><capsuleGeometry args={[0.1, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
+    {/* jacket: zip up the front + a raised collar */}
+    <mesh position={[0, 0.42, -0.28]}><boxGeometry args={[0.045, 0.52, 0.03]} /><meshStandardMaterial color="#05070c" metalness={0.4} roughness={0.5} /></mesh>
+    <mesh position={[0, 0.66, -0.02]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.19, 0.06, 8, 16]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.9} /></mesh>
     <mesh position={[0, 0.82, -0.02]}><cylinderGeometry args={[0.09, 0.11, 0.12, 10]} /><meshStandardMaterial color="#20242f" /></mesh>
     <mesh position={[0, 1.0, -0.02]} castShadow><sphereGeometry args={[0.23, 20, 16]} /><meshStandardMaterial color="#211a1a" /></mesh>
-    <mesh position={[0, 1.05, -0.06]} scale={[1.06, 1.0, 1.1]}><sphereGeometry args={[0.23, 20, 16]} /><meshStandardMaterial color="#12100f" roughness={1} /></mesh>
+    {/* hood worn up: cloth shell over the back and top of the head, face left open */}
+    <mesh position={[0, 1.05, 0.07]} scale={[1.22, 1.2, 1.32]} castShadow><sphereGeometry args={[0.23, 20, 16]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
+    <mesh position={[0, 0.97, -0.16]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.2, 0.055, 8, 18]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
     <mesh position={[0, 1.16, -0.02]} rotation={[0.1, 0, 0]}><torusGeometry args={[0.24, 0.045, 8, 20, Math.PI]} /><meshStandardMaterial color="#0a0c12" /></mesh>
     <mesh position={[-0.24, 1.0, -0.02]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.09, 0.09, 0.09, 14]} /><meshStandardMaterial color="#0a0c12" /></mesh>
     <mesh position={[0.24, 1.0, -0.02]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.09, 0.09, 0.09, 14]} /><meshStandardMaterial color="#0a0c12" /></mesh>

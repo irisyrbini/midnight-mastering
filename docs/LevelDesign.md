@@ -42,6 +42,8 @@ The player is clamped to `x ∈ [90, 1190]`, `y ∈ [410, 590]` (`clampToRoom`, 
 - `ledLights` recolours with the crystal (`LedStrip`, red→yellow→green); the `window` gained a **starfield** (drei `Sparkles` + bloom-catching bright stars).
 - `bathroom` moved to the **right wall** beside the closet (`rotationY: -π/2`, same side as the closet); `miniFridge` moved to sit **next to the desk's right corner**; `entrance` moved further out to the **front-left corner** for more central floor space.
 - The `entrance` door goes **translucent while open** (leaf opacity lerps to ~0.28) and **auto-closes after `ENTRANCE_AUTOCLOSE_MS` (5s)** via a timer in `EntranceDoor`.
+- `miniFridge` pushed back against the wall behind the desk's right side; it now uses `action: 'fridge'` — interacting **opens the door with a warm orange interior light**, and interacting again (or Enter) closes it (`Fridge` component, `fridgeOpen`).
+- The `window` is **openable** (`action: 'window'`, `windowOpen`): its glass pane tilts open awning-style and opening it **drops stress** (−22); its message says so. Added **posters2–4** on the back wall, a **mic** and a **phone** on the desk, and recoloured the **audio interface metallic red**.
 - Note: the orbit camera is fixed on room centre, so edge furniture (bed, right-wall doors) frames the producer near the screen edge — orbit to view.
 
 ## 7. Earlier revision log
