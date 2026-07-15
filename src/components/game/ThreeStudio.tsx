@@ -51,16 +51,18 @@ function UpperBody({ hipY }: { hipY: number }) {
     {/* jacket: zip up the front + a raised collar */}
     <mesh position={[0, 0.42, -0.28]}><boxGeometry args={[0.045, 0.52, 0.03]} /><meshStandardMaterial color="#05070c" metalness={0.4} roughness={0.5} /></mesh>
     <mesh position={[0, 0.66, -0.02]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.19, 0.06, 8, 16]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.9} /></mesh>
-    <mesh position={[0, 0.82, -0.02]}><cylinderGeometry args={[0.09, 0.11, 0.12, 10]} /><meshStandardMaterial color="#20242f" /></mesh>
-    <mesh position={[0, 1.0, -0.02]} castShadow><sphereGeometry args={[0.23, 20, 16]} /><meshStandardMaterial color="#211a1a" /></mesh>
-    {/* hood worn up: cloth shell over the back and top of the head, face left open */}
-    <mesh position={[0, 1.05, 0.07]} scale={[1.22, 1.2, 1.32]} castShadow><sphereGeometry args={[0.23, 20, 16]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
-    <mesh position={[0, 0.97, -0.16]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.2, 0.055, 8, 18]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
-    <mesh position={[0, 1.16, -0.02]} rotation={[0.1, 0, 0]}><torusGeometry args={[0.24, 0.045, 8, 20, Math.PI]} /><meshStandardMaterial color="#0a0c12" /></mesh>
-    <mesh position={[-0.24, 1.0, -0.02]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.09, 0.09, 0.09, 14]} /><meshStandardMaterial color="#0a0c12" /></mesh>
-    <mesh position={[0.24, 1.0, -0.02]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.09, 0.09, 0.09, 14]} /><meshStandardMaterial color="#0a0c12" /></mesh>
-    <mesh position={[-0.285, 1.0, -0.02]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.06, 0.06, 0.02, 14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.4} /></mesh>
-    <mesh position={[0.285, 1.0, -0.02]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.06, 0.06, 0.02, 14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.4} /></mesh>
+    <mesh position={[0, 0.82, -0.03]}><cylinderGeometry args={[0.09, 0.11, 0.12, 10]} /><meshStandardMaterial color="#20242f" /></mesh>
+    {/* head/face — sits at the FRONT (−z, toward the desk); lighter so the face reads clearly */}
+    <mesh position={[0, 1.0, -0.05]} castShadow><sphereGeometry args={[0.2, 20, 16]} /><meshStandardMaterial color="#37303a" roughness={0.9} /></mesh>
+    {/* hood worn UP over the head — a cloth shell pushed back so the face shows through the opening at the front */}
+    <mesh position={[0, 1.07, 0.09]} scale={[1.34, 1.4, 1.32]} castShadow><sphereGeometry args={[0.2, 20, 16]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
+    <mesh position={[0, 1.02, -0.16]} rotation={[Math.PI / 2 - 0.3, 0, 0]}><torusGeometry args={[0.185, 0.05, 8, 20]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
+    {/* headphones worn OVER the hood: band + ear cups at a radius larger than the hood */}
+    <mesh position={[0, 1.14, 0.03]} rotation={[0.08, 0, 0]}><torusGeometry args={[0.32, 0.05, 8, 24, Math.PI]} /><meshStandardMaterial color="#0a0c12" roughness={0.6} /></mesh>
+    <mesh position={[-0.32, 1.0, 0.03]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.1, 0.1, 0.09, 16]} /><meshStandardMaterial color="#0a0c12" /></mesh>
+    <mesh position={[0.32, 1.0, 0.03]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.1, 0.1, 0.09, 16]} /><meshStandardMaterial color="#0a0c12" /></mesh>
+    <mesh position={[-0.375, 1.0, 0.03]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.06, 0.06, 0.02, 14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.4} /></mesh>
+    <mesh position={[0.375, 1.0, 0.03]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.06, 0.06, 0.02, 14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.4} /></mesh>
   </group>;
 }
 
