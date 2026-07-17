@@ -28,6 +28,15 @@ type GameState = GameSnapshot & {
   fridgeOpen: boolean;
   windowOpen: boolean;
   stress: number;
+  scrolling: boolean;
+  wellnessMinutes: number;
+  instrumentsUsed: Record<string, boolean>;
+  prompt: Prompt | null;
+  sfxCue: SfxCue;
+  visitorActive: boolean;
+  visitorPhase: VisitorPhase;
+  visitorPos: Point;
+  visitorLeaveAt: number;
   selectedObjectId?: string;
   activeVideoId?: string;
   ending: Ending;
@@ -39,14 +48,22 @@ type GameState = GameSnapshot & {
   setRunning: (running: boolean) => void;
   setEntranceOpen: (open: boolean) => void;
   stepMovement: (deltaMs: number) => void;
+  stepVisitor: (deltaMs: number) => void;
   selectObject: (id?: string) => void;
   closeVideo: () => void;
+  choose: (kind: string) => void;
+  dismissPrompt: () => void;
   pause: () => void;
   resume: () => void;
   restart: () => void;
   tick: (deltaMs: number) => void;
   interact: (interactionId: string) => void;
 };
+
+export type PromptChoice = { label: string; kind: string };
+export type Prompt = { title: string; note?: string; choices: PromptChoice[] };
+type VisitorPhase = 'arriving' | 'staying' | 'leaving';
+type SfxCue = { id: string; n: number };
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 const decayPerGameMinute: ProducerNeeds = { hunger: 0.16, energy: 0.12, hygiene: 0.06, social: 0.08, creativity: 0.09, love: 0.05 };
@@ -73,6 +90,29 @@ const centerOf = (id: string, fallback: Point): Point => {
 };
 const SIT_POSITION = centerOf('chair', { x: 640, y: 510 });
 const LIE_POSITION = centerOf('bed', { x: 950, y: 300 });
+const ENTRANCE_POSITION = centerOf('entrance', { x: 256, y: 768 });
+
+/** Every musical instrument (incl. the lyric notebook) must be used before the album can be finished (see docs). */
+const INSTRUMENT_IDS = new Set(['acousticGuitar', 'electricGuitar', 'portasound', 'sk5', 'modularSynths', 'mic', 'lyricNotebook']);
+const REQUIRED_INSTRUMENT_COUNT = INSTRUMENT_IDS.size;
+const allInstrumentsUsed = (used: Record<string, boolean>) => [...INSTRUMENT_IDS].every((id) => used[id]);
+
+const FRIDGE_PROMPT: Prompt = {
+  title: 'Cold beers on the shelf.',
+  choices: [
+    { label: 'Drink a beer', kind: 'drink-beer' },
+    { label: 'Grab a snack', kind: 'eat' },
+    { label: 'Close the fridge', kind: 'close-fridge' },
+  ],
+};
+const PHONE_PROMPT: Prompt = {
+  title: 'Late-night phone.',
+  choices: [
+    { label: 'Call a friend', kind: 'call-friend' },
+    { label: 'Doom-scroll', kind: 'doom-scroll' },
+    { label: 'Put it down', kind: 'dismiss' },
+  ],
+};
 
 /** Sustained-wellbeing collapse. See docs/Gameplay.md §6 and docs/GDD.md §5. */
 const COLLAPSE_WELLBEING_FLOOR = 15;
@@ -105,6 +145,15 @@ const initialSession = () => ({
   fridgeOpen: false,
   windowOpen: false,
   stress: 40,
+  scrolling: false,
+  wellnessMinutes: 0,
+  instrumentsUsed: {} as Record<string, boolean>,
+  prompt: null as Prompt | null,
+  sfxCue: { id: '', n: 0 } as SfxCue,
+  visitorActive: false,
+  visitorPhase: 'arriving' as VisitorPhase,
+  visitorPos: { x: 256, y: 768 } as Point,
+  visitorLeaveAt: 0,
   selectedObjectId: undefined as string | undefined,
   activeVideoId: undefined as string | undefined,
   ending: null as Ending,
@@ -159,11 +208,19 @@ export const useGameStore = create<GameState>((set) => ({
     // Stress creeps up over the night — faster under burnout/obsession/loneliness and while grinding, easier when in flow.
     const g = state.emotionalGraph;
     const stressDrift = 0.03 + (g.burnout === 'high' ? 0.07 : 0) + (g.obsession === 'high' ? 0.04 : 0) + (g.loneliness === 'high' ? 0.03 : 0) - (g.creativeFlow === 'high' ? 0.03 : 0) + (state.workingOnMusic ? 0.14 : 0);
+    // Wellness boost: when every need is full, the crystal recovers faster (positive graph resolution every ~8 game-min).
+    const allFull = Math.min(...Object.values(needs)) >= 95;
+    const wellnessAccum = allFull ? state.wellnessMinutes + gameMinutes : 0;
+    const wellnessResolve = allFull && wellnessAccum >= 8;
+    const baseGraph = wellnessResolve
+      ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }, { node: 'burnout', direction: 'down' }, { node: 'loneliness', direction: 'down' }])
+      : state.emotionalGraph;
     const base = {
       elapsedMs: state.elapsedMs + deltaMs,
       needs,
       clock: { day: state.clock.day + Math.floor(totalMinutes / 1440), minuteOfDay: totalMinutes % 1440 },
       stress: clamp(state.stress + stressDrift * gameMinutes),
+      wellnessMinutes: wellnessResolve ? 0 : wellnessAccum,
     };
     // Session-frame outcome: a win halts the run immediately; sustained rock-bottom wellbeing collapses it.
     const sessionFrame = (finalNeeds: ProducerNeeds, won: boolean) => {
@@ -172,7 +229,7 @@ export const useGameStore = create<GameState>((set) => ({
       if (collapseMinutes >= COLLAPSE_SUSTAIN_MINUTES) return { phase: 'ending' as GamePhase, ending: 'collapse' as Ending, collapseMinutes };
       return { collapseMinutes };
     };
-    if (!state.workingOnMusic) return { ...base, inspirationMinutes: Math.max(0, state.inspirationMinutes - gameMinutes), ...sessionFrame(needs, false) };
+    if (!state.workingOnMusic) return { ...base, emotionalGraph: baseGraph, crystal: crystalState(baseGraph), inspirationMinutes: Math.max(0, state.inspirationMinutes - gameMinutes), ...sessionFrame(needs, false) };
 
     // Music work has its own sustained cost beyond normal living decay.
     needs = applyNeedChange(needs, { energy: -0.22 * gameMinutes, hunger: -0.18 * gameMinutes, hygiene: -0.08 * gameMinutes, social: -0.14 * gameMinutes, creativity: 0.24 * gameMinutes });
@@ -183,10 +240,11 @@ export const useGameStore = create<GameState>((set) => ({
     const qualityRate = inspirationMinutes > 0 ? 0.34 : 0.16;
     const emotionalResolutionMinutes = state.emotionalResolutionMinutes + gameMinutes;
     const resolveWorkEmotion = emotionalResolutionMinutes >= 15;
-    const emotionalGraph = resolveWorkEmotion ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'creativeFlow', direction: 'up' }, { node: 'burnout', direction: 'up' }, { node: 'obsession', direction: 'up' }]) : state.emotionalGraph;
+    const emotionalGraph = resolveWorkEmotion ? resolveEmotionGraph(baseGraph, [{ node: 'creativeFlow', direction: 'up' }, { node: 'burnout', direction: 'up' }, { node: 'obsession', direction: 'up' }]) : baseGraph;
     const crystal = crystalState(emotionalGraph);
     const albumProgress = clamp(state.albumProgress + 0.12 * gameMinutes);
-    const albumCompleted = state.albumCompleted || (albumProgress >= 100 && crystal === 'green');
+    // The album can only be finished once every instrument (incl. the lyric notebook) has been used.
+    const albumCompleted = state.albumCompleted || (albumProgress >= 100 && crystal === 'green' && allInstrumentsUsed(state.instrumentsUsed));
     return {
       ...base,
       needs,
@@ -207,34 +265,75 @@ export const useGameStore = create<GameState>((set) => ({
     const emotionalGraph = resolveEmotionGraph(state.emotionalGraph, interaction.emotionalEffects);
     const crystal = crystalState(emotionalGraph);
     const inspirationMinutes = interaction.inspirationMinutes ? Math.max(state.inspirationMinutes, interaction.inspirationMinutes) : state.inspirationMinutes;
+    const sfxCue = { id: interactionId, n: state.sfxCue.n + 1 };
+    const instrumentsUsed = INSTRUMENT_IDS.has(interactionId) ? { ...state.instrumentsUsed, [interactionId]: true } : state.instrumentsUsed;
     // The chair toggles sitting; the bed toggles lying. Snap onto the furniture, use again to get up. No playback modal.
     if (interaction.action === 'sit') {
       const seated = !state.seated;
-      return { seated, lyingDown: false, playerPosition: seated ? SIT_POSITION : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal };
+      return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? SIT_POSITION : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     if (interaction.action === 'lie') {
       const lyingDown = !state.lyingDown;
-      return { lyingDown, seated: false, playerPosition: lyingDown ? LIE_POSITION : state.playerPosition, moveTarget: null,
+      return { lyingDown, seated: false, scrolling: false, playerPosition: lyingDown ? LIE_POSITION : state.playerPosition, moveTarget: null,
         needs: lyingDown ? applyNeedChange(state.needs, interaction.changes) : state.needs,
-        stress: lyingDown ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal };
+        stress: lyingDown ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
-    // The fridge and the window toggle open/closed. Opening applies their effect; no playback modal, so Enter closes them again.
+    // The fridge opens with a beer/snack choice; the bed phone offers call/scroll. Both raise a prompt instead of a modal.
     if (interaction.action === 'fridge') {
       const fridgeOpen = !state.fridgeOpen;
-      return { fridgeOpen, seated: false, lyingDown: false,
-        needs: fridgeOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
-        stress: fridgeOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal };
+      return { fridgeOpen, seated: false, lyingDown: false, prompt: fridgeOpen ? FRIDGE_PROMPT : null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+    }
+    if (interaction.action === 'phone-bed') {
+      return { prompt: PHONE_PROMPT, seated: false, lyingDown: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     if (interaction.action === 'window') {
       const windowOpen = !state.windowOpen;
-      return { windowOpen, seated: false, lyingDown: false,
+      return { windowOpen, seated: false, lyingDown: false, scrolling: false,
         needs: windowOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
-        stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal };
+        stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     // Any other interaction stands the producer up. The entrance swings its door open.
     const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
     const stress = clamp(state.stress + (interaction.stressDelta ?? 0));
-    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, entranceOpen, stress };
-    return { needs: applyNeedChange(state.needs, interaction.changes), activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, entranceOpen, stress };
+    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed };
+    return { needs: applyNeedChange(state.needs, interaction.changes), activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed };
+  }),
+  dismissPrompt: () => set({ prompt: null }),
+  choose: (kind) => set((state) => {
+    if (kind === 'drink-beer') {
+      const graph = resolveEmotionGraph(state.emotionalGraph, [{ node: 'addiction', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }]);
+      return { prompt: null, fridgeOpen: false, needs: applyNeedChange(state.needs, { creativity: 8, energy: -9, hygiene: -2 }), stress: clamp(state.stress - 6), emotionalGraph: graph, crystal: crystalState(graph), lastInteraction: interactionById.beer ?? state.lastInteraction };
+    }
+    if (kind === 'eat') return { prompt: null, fridgeOpen: false, needs: applyNeedChange(state.needs, { hunger: 24, energy: 3 }) };
+    if (kind === 'call-friend') {
+      const graph = resolveEmotionGraph(state.emotionalGraph, [{ node: 'loneliness', direction: 'down' }, { node: 'love', direction: 'up' }]);
+      return { prompt: null, visitorActive: true, visitorPhase: 'arriving' as VisitorPhase, visitorPos: { ...ENTRANCE_POSITION }, visitorLeaveAt: state.elapsedMs + 100000, emotionalGraph: graph, crystal: crystalState(graph), lastInteraction: interactionById.friend ?? state.lastInteraction };
+    }
+    if (kind === 'doom-scroll') {
+      return { prompt: null, lyingDown: true, scrolling: true, seated: false, playerPosition: LIE_POSITION, moveTarget: null, needs: applyNeedChange(state.needs, { social: -8 }), stress: clamp(state.stress + 6), lastInteraction: interactionById.doomscroll ?? state.lastInteraction };
+    }
+    // dismiss / close-fridge
+    return { prompt: null, fridgeOpen: false };
+  }),
+  stepVisitor: (deltaMs) => set((state) => {
+    if (!state.visitorActive || state.phase !== 'playing') return state;
+    const step = 320 * (deltaMs / 1000);
+    // Head for the player while visiting, back to the entrance when leaving.
+    const goingHome = state.visitorPhase === 'leaving';
+    const target = goingHome ? ENTRANCE_POSITION : { x: state.playerPosition.x - 95, y: state.playerPosition.y + 10 };
+    const dx = target.x - state.visitorPos.x;
+    const dy = target.y - state.visitorPos.y;
+    const dist = Math.hypot(dx, dy);
+    if (state.visitorPhase === 'arriving' && dist <= 70) {
+      // Arrived: a big one-time social boost.
+      return { visitorPhase: 'staying' as VisitorPhase, needs: applyNeedChange(state.needs, { social: 45, love: 6 }), stress: clamp(state.stress - 12) };
+    }
+    if (state.visitorPhase === 'staying') {
+      if (state.elapsedMs >= state.visitorLeaveAt) return { visitorPhase: 'leaving' as VisitorPhase };
+      return { needs: applyNeedChange(state.needs, { social: 0.4 * (deltaMs / 1000) }) }; // stay warm while together
+    }
+    if (goingHome && dist <= 40) return { visitorActive: false }; // out the door
+    const visitorPos = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step };
+    return { visitorPos };
   }),
 }));

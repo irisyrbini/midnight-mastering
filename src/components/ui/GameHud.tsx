@@ -7,6 +7,8 @@ import { DawPanel } from './DawPanel';
 import { InteractionVideo } from './InteractionVideo';
 import { PauseOverlay } from './PauseOverlay';
 import { EndingOverlay } from './EndingOverlay';
+import { PromptOverlay } from './PromptOverlay';
+import { SfxPlayer } from './SfxPlayer';
 
 const NEEDS: { key: NeedKey; label: string; color: string }[] = [
   { key: 'hunger', label: 'Hunger', color: '#d6a447' },
@@ -67,7 +69,9 @@ export function GameHud() {
     </aside>}
     <DawPanel />
     <InteractionVideo />
+    <PromptOverlay />
     <PauseOverlay />
     <EndingOverlay />
+    <SfxPlayer />
   </>;
 }

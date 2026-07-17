@@ -32,6 +32,7 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'acousticGuitar', x: 280, y: 462, width: 62, height: 156, color: '#ba8653', shape: 'guitar' },
   { id: 'electricGuitar', x: 362, y: 464, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
   { id: 'bed', x: 1010, y: 250, width: 218, height: 168, color: '#54667d', rotationY: Math.PI / 2 },
+  { id: 'bedPhone', x: 1075, y: 280, width: 34, height: 54, color: '#0c0e14' },
   { id: 'miniFridge', x: 921, y: 111, width: 86, height: 132, color: '#a8aeb6' },
   { id: 'bathroom', x: 1192, y: 610, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2 },
   { id: 'entrance', x: 200, y: 730, width: 112, height: 76, color: '#b73545' },

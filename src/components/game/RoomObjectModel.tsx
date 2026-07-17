@@ -124,10 +124,17 @@ function Fridge() {
     {/* cabinet + dark interior */}
     <mesh position={[0, 0.7, -0.02]} castShadow><boxGeometry args={[0.9, 1.4, 0.8]} /><meshStandardMaterial color="#a8aeb6" metalness={0.3} roughness={0.4} /></mesh>
     <mesh position={[0, 0.7, 0.18]}><boxGeometry args={[0.78, 1.24, 0.5]} /><meshStandardMaterial color="#161a1e" /></mesh>
-    {/* interior shelves + a couple of items, lit orange when open */}
-    <mesh position={[0, 0.95, 0.2]}><boxGeometry args={[0.7, 0.03, 0.42]} /><meshStandardMaterial color="#2a2f34" /></mesh>
-    <mesh position={[-0.15, 0.62, 0.2]}><cylinderGeometry args={[0.06, 0.06, 0.28, 10]} /><meshStandardMaterial color="#6d9c7b" /></mesh>
-    <mesh position={[0.14, 1.12, 0.2]}><cylinderGeometry args={[0.06, 0.06, 0.22, 10]} /><meshStandardMaterial color="#d05e55" /></mesh>
+    {/* interior shelf + a row of beer bottles (amber glass, yellow liquid), lit orange when open */}
+    <mesh position={[0, 0.98, 0.2]}><boxGeometry args={[0.7, 0.03, 0.42]} /><meshStandardMaterial color="#2a2f34" /></mesh>
+    {[-0.22, -0.07, 0.08, 0.23].map((bx, i) => <group key={i} position={[bx, 0.55, 0.2]}>
+      <mesh><cylinderGeometry args={[0.055, 0.055, 0.3, 12]} /><meshStandardMaterial color="#6b4a10" transparent opacity={0.85} roughness={0.25} /></mesh>
+      <mesh position={[0, -0.02, 0]}><cylinderGeometry args={[0.05, 0.05, 0.22, 12]} /><meshStandardMaterial color="#e8c74a" emissive="#8a6a12" emissiveIntensity={0.35} /></mesh>
+      <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.02, 0.045, 0.1, 10]} /><meshStandardMaterial color="#5a3f10" /></mesh>
+    </group>)}
+    {[-0.15, 0.1].map((bx, i) => <group key={`t${i}`} position={[bx, 1.12, 0.2]}>
+      <mesh><cylinderGeometry args={[0.055, 0.055, 0.3, 12]} /><meshStandardMaterial color="#6b4a10" transparent opacity={0.85} roughness={0.25} /></mesh>
+      <mesh position={[0, -0.02, 0]}><cylinderGeometry args={[0.05, 0.05, 0.22, 12]} /><meshStandardMaterial color="#e8c74a" emissive="#8a6a12" emissiveIntensity={0.35} /></mesh>
+    </group>)}
     <pointLight ref={glow} position={[0, 0.75, 0.34]} color="#ff8a2a" intensity={0} distance={2.4} />
     {/* hinged door on the left, opaque metal */}
     <group ref={door} position={[-0.45, 0.7, 0.42]}>
@@ -274,6 +281,13 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.34, 0.7, 0.03]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
       <mesh position={[0, 0.036, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.3, 0.64]} /><meshStandardMaterial color="#2a3550" emissive="#3a4a70" emissiveIntensity={0.9} toneMapped={false} /></mesh>
       <mesh position={[-0.1, 0.03, -0.22]}><boxGeometry args={[0.1, 0.02, 0.1]} /><meshStandardMaterial color="#1a1d24" /></mesh>
+    </group>;
+
+    // Phone resting on the mattress (bed surface ≈ 0.5 world).
+    case 'bedPhone': return <group position={[0, 0.52, 0]} rotation={[0, -0.4, 0]}>
+      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.32, 0.66, 0.03]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
+      <mesh position={[0, 0.037, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.28, 0.6]} /><meshStandardMaterial color="#3a4a70" emissive="#4a5c8a" emissiveIntensity={1.1} toneMapped={false} /></mesh>
+      <pointLight position={[0, 0.2, 0]} color="#6a7fb8" intensity={0.5} distance={1.4} />
     </group>;
 
     case 'lyricNotebook': return <group position={[0, DESK_Y, 0]} rotation={[0, 0.3, 0]}>

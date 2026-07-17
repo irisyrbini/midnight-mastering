@@ -41,13 +41,13 @@ const CLOTH = '#161a24';
 const CLOTH_DARK = '#0e111a';
 
 /** Everything from the hips up, shared by the standing and seated poses (offsets are relative to hip height). */
-function UpperBody({ hipY }: { hipY: number }) {
+function UpperBody({ hipY, cloth = CLOTH }: { hipY: number; cloth?: string }) {
   return <group position={[0, hipY, 0]}>
-    <mesh castShadow><boxGeometry args={[0.48, 0.3, 0.3]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
-    <mesh position={[0, 0.42, 0]} castShadow><capsuleGeometry args={[0.29, 0.42, 6, 12]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
-    <mesh position={[0, 0.68, 0]} scale={[1, 0.62, 0.9]} castShadow><sphereGeometry args={[0.36, 18, 14]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
-    <mesh position={[-0.36, 0.36, 0.02]} rotation={[0.1, 0, 0.16]} castShadow><capsuleGeometry args={[0.1, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
-    <mesh position={[0.36, 0.36, 0.02]} rotation={[0.1, 0, -0.16]} castShadow><capsuleGeometry args={[0.1, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH} roughness={0.85} /></mesh>
+    <mesh castShadow><boxGeometry args={[0.48, 0.3, 0.3]} /><meshStandardMaterial color={cloth} roughness={0.85} /></mesh>
+    <mesh position={[0, 0.42, 0]} castShadow><capsuleGeometry args={[0.29, 0.42, 6, 12]} /><meshStandardMaterial color={cloth} roughness={0.85} /></mesh>
+    <mesh position={[0, 0.68, 0]} scale={[1, 0.62, 0.9]} castShadow><sphereGeometry args={[0.36, 18, 14]} /><meshStandardMaterial color={cloth} roughness={0.85} /></mesh>
+    <mesh position={[-0.36, 0.36, 0.02]} rotation={[0.1, 0, 0.16]} castShadow><capsuleGeometry args={[0.1, 0.5, 4, 8]} /><meshStandardMaterial color={cloth} roughness={0.85} /></mesh>
+    <mesh position={[0.36, 0.36, 0.02]} rotation={[0.1, 0, -0.16]} castShadow><capsuleGeometry args={[0.1, 0.5, 4, 8]} /><meshStandardMaterial color={cloth} roughness={0.85} /></mesh>
     {/* jacket: zip up the front + a raised collar */}
     <mesh position={[0, 0.42, -0.28]}><boxGeometry args={[0.045, 0.52, 0.03]} /><meshStandardMaterial color="#05070c" metalness={0.4} roughness={0.5} /></mesh>
     <mesh position={[0, 0.66, -0.02]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.19, 0.06, 8, 16]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.9} /></mesh>
@@ -55,8 +55,8 @@ function UpperBody({ hipY }: { hipY: number }) {
     {/* head/face — sits at the FRONT (−z, toward the desk); lighter so the face reads clearly */}
     <mesh position={[0, 1.0, -0.05]} castShadow><sphereGeometry args={[0.2, 20, 16]} /><meshStandardMaterial color="#37303a" roughness={0.9} /></mesh>
     {/* hood worn UP over the head — a cloth shell pushed back so the face shows through the opening at the front */}
-    <mesh position={[0, 1.07, 0.09]} scale={[1.34, 1.4, 1.32]} castShadow><sphereGeometry args={[0.2, 20, 16]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
-    <mesh position={[0, 1.02, -0.16]} rotation={[Math.PI / 2 - 0.3, 0, 0]}><torusGeometry args={[0.185, 0.05, 8, 20]} /><meshStandardMaterial color={CLOTH} roughness={0.95} /></mesh>
+    <mesh position={[0, 1.07, 0.09]} scale={[1.34, 1.4, 1.32]} castShadow><sphereGeometry args={[0.2, 20, 16]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
+    <mesh position={[0, 1.02, -0.16]} rotation={[Math.PI / 2 - 0.3, 0, 0]}><torusGeometry args={[0.185, 0.05, 8, 20]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
     {/* headphones worn OVER the hood: band + ear cups at a radius larger than the hood */}
     <mesh position={[0, 1.14, 0.03]} rotation={[0.08, 0, 0]}><torusGeometry args={[0.32, 0.05, 8, 24, Math.PI]} /><meshStandardMaterial color="#0a0c12" roughness={0.6} /></mesh>
     <mesh position={[-0.32, 1.0, 0.03]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.1, 0.1, 0.09, 16]} /><meshStandardMaterial color="#0a0c12" /></mesh>
@@ -70,8 +70,9 @@ function StandingLegs() {
   return <>
     <mesh position={[-0.15, 0.42, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.9} /></mesh>
     <mesh position={[0.15, 0.42, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.9} /></mesh>
-    <mesh position={[-0.15, 0.06, 0.08]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
-    <mesh position={[0.15, 0.06, 0.08]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+    {/* shoes point −z (forward), matching the face, so the figure reads as facing/walking forward */}
+    <mesh position={[-0.15, 0.06, -0.1]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+    <mesh position={[0.15, 0.06, -0.1]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
   </>;
 }
 
@@ -91,7 +92,8 @@ function SittingLegs() {
 function WalkLeg({ legRef, x }: { legRef: RefObject<THREE.Group | null>; x: number }) {
   return <group ref={legRef} position={[x, 0.85, 0]}>
     <mesh position={[0, -0.43, 0]} castShadow><capsuleGeometry args={[0.13, 0.5, 4, 8]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.9} /></mesh>
-    <mesh position={[0, -0.79, 0.08]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+    {/* toe points −z (forward), matching the face */}
+    <mesh position={[0, -0.79, -0.1]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
   </group>;
 }
 
@@ -124,7 +126,10 @@ function WalkingFigure() {
     const targetSwing = moving ? Math.sin(phase.current) * Math.min(0.75, 0.35 + speed * 0.05) : 0;
     swing.current += (targetSwing - swing.current) * Math.min(1, dt * 12);
     if (figure.current) figure.current.rotation.y = facing.current;
-    if (bob.current) bob.current.position.y = moving ? Math.abs(Math.sin(phase.current)) * Math.min(0.09, 0.03 + speed * 0.006) : 0;
+    if (bob.current) {
+      bob.current.position.y = moving ? Math.abs(Math.sin(phase.current)) * Math.min(0.09, 0.03 + speed * 0.006) : 0;
+      bob.current.rotation.x += ((moving ? -0.16 : 0) - bob.current.rotation.x) * Math.min(1, dt * 10); // lean forward while walking
+    }
     if (legL.current) legL.current.rotation.x = swing.current;
     if (legR.current) legR.current.rotation.x = -swing.current;
   });
@@ -140,6 +145,7 @@ function Player() {
   const position = useGameStore((state) => state.playerPosition);
   const seated = useGameStore((state) => state.seated);
   const lyingDown = useGameStore((state) => state.lyingDown);
+  const scrolling = useGameStore((state) => state.scrolling);
   const [x, z] = toWorld(position.x, position.y);
   if (lyingDown) {
     // Lie on the mattress: tip the upright body onto its back (head toward +z, on the pillow) and raise to bed height.
@@ -148,6 +154,12 @@ function Player() {
         <UpperBody hipY={0.82} />
         <StandingLegs />
       </group>
+      {/* doom-scrolling: a glowing phone held up over the face */}
+      {scrolling && <group position={[0, 0.95, 0.55]}>
+        <mesh rotation={[-0.6, 0, 0]}><boxGeometry args={[0.24, 0.44, 0.02]} /><meshStandardMaterial color="#0c0e14" /></mesh>
+        <mesh position={[0, 0, 0.02]} rotation={[-0.6, 0, 0]}><planeGeometry args={[0.2, 0.38]} /><meshStandardMaterial color="#3a4a70" emissive="#5468a0" emissiveIntensity={1.3} toneMapped={false} /></mesh>
+        <pointLight color="#6a7fb8" intensity={0.7} distance={1.2} />
+      </group>}
       <EmotionalCrystal y={1.5} />
     </group>;
   }
@@ -161,6 +173,21 @@ function Player() {
   return <group position={[x, 0, z]}>
     <WalkingFigure />
     <EmotionalCrystal y={2.72} />
+  </group>;
+}
+
+/** The called-over friend: a taller figure in a different coat who walks in and faces the producer. */
+function Visitor() {
+  const active = useGameStore((state) => state.visitorActive);
+  const vpos = useGameStore((state) => state.visitorPos);
+  const ppos = useGameStore((state) => state.playerPosition);
+  if (!active) return null;
+  const [vx, vz] = toWorld(vpos.x, vpos.y);
+  const [px, pz] = toWorld(ppos.x, ppos.y);
+  const facing = Math.atan2(-(px - vx), -(pz - vz));
+  return <group position={[vx, 0, vz]} rotation={[0, facing, 0]} scale={1.28}>
+    <StandingLegs />
+    <UpperBody hipY={0.82} cloth="#3f5a4c" />
   </group>;
 }
 
@@ -205,7 +232,7 @@ function Room() {
     {/* Right wall the closet is mounted against. */}
     <mesh position={[7, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[0, 6.15, 0]}><boxGeometry args={[14, 0.12, 10]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
-    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<Player /><CameraRig />
+    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<Player /><Visitor /><CameraRig />
   </>;
 }
 

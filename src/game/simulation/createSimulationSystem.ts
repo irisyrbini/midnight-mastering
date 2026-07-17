@@ -7,5 +7,6 @@ export function createSimulationSystem(): FrameSystem {
     const store = useGameStore.getState();
     store.tick(deltaMs);
     store.stepMovement(deltaMs); // eases the producer toward any click-to-move target
+    store.stepVisitor(deltaMs); // walks a called-over friend in and back out
   };
 }

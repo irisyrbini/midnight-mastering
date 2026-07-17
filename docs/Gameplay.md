@@ -88,6 +88,19 @@ Opening the music desk / laptop opens the **DAW panel** (`DawPanel.tsx`). While 
 
 **Completion:** `albumCompleted` becomes true only when `albumProgress ≥ 100` **and** the crystal is green. Grinding while red will cap progress with no ending.
 
+## 5a. Recording the album
+
+The album can only be **finished once every musical instrument has been used** — `acousticGuitar`, `electricGuitar`, `portasound`, `sk5`, `modularSynths`, `mic`, and the `lyricNotebook` (`INSTRUMENT_IDS`; the DAW shows an `n/7` counter). Completion still also needs `albumProgress ≥ 100` **and** a green crystal. When **all six needs are full**, the crystal recovers faster (a positive graph resolution every ~8 game-min — `wellnessMinutes`).
+
+## 5b. Choices, sound & the visiting friend
+
+- **Guitars strum** on interact (synth SFX, acoustic vs electric differ) and the **lyric notebook scribbles** (`src/game/audio/sfx.ts`, `SfxPlayer`, driven by `sfxCue`).
+- The **fridge** raises a prompt — *Drink a beer* (alcohol: creativity ↑, energy ↓), *Grab a snack*, or *Close* — with beer bottles visible inside.
+- The **bed phone** raises *Call a friend* / *Doom-scroll* / *Put it down* (`PromptOverlay`, `choose`).
+  - *Call a friend* spawns a **taller visitor** who walks in from the entrance for a big social boost and **leaves after 100s** (`visitor*` state, `stepVisitor`).
+  - *Doom-scroll* lays the producer on the bed with a glowing phone (social ↓, stress ↑).
+- Alcohol (vodka, beer) raises creativity and drains energy; the handheld console lowers stress + sociability but raises creativity.
+
 ## 6. Endings (M3)
 
 - **Win — Finished:** `albumCompleted` → win overlay.
