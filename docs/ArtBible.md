@@ -70,6 +70,16 @@ Semi-realistic anime-inspired 2.5D night interior: soft painterly surfaces, clea
 - Particles sparse (8–25 typical, 60 max), slow, colored from the active light at 15–45% opacity. No confetti/sparks/hearts.
 - Honor `prefers-reduced-motion`.
 
+### 8a. Character rigs
+
+All figures are posed from jointed groups, never rigid meshes, so animation reads as body language rather than sliding props.
+
+- **Producer / friend upper body** — arms hinge at the shoulder with a second joint at the elbow; head, hood and headphones pivot together at the neck. This rig is what the seated groove drives.
+- **Seated groove** (`useGroove`, both characters simultaneously while `friendActivity === 'tune'`): the upper body rocks forward and back on the beat, arms swing, forearms sweep side to side, shoulders lift alternately, and the head nods — with an emphatic nod every few bars. Energetic but relaxed. The friend runs a 0.9s phase offset so the pair reads as two people, not a mirrored pair. The whole loop eases in and out via a single weight, so it never snaps on or off.
+- **NPC 2 walk cycle** — hips and knees drive a real stride (only the leg swinging through bends at the knee), arms counter-swing, the body bounces and rolls slightly per step and leans into the walk, the head counter-bobs to stay level while walking and glances around while idle. A single eased `gait` weight blends idle ↔ walking, and the figure turns through corners rather than snapping to a new heading.
+- **Smoking** — a cinematic cycle: raise the cigarette to the mouth (1.1s), hold while inhaling as the tip glows brighter (0.9s), lower the hand while exhaling (1.0s), rest at the side (2.6s). Soft voxel smoke puffs rise with a slight wander and fade: a thin trickle from the lit tip throughout, a slower wider cloud from the mouth on the exhale.
+- **Rain** — straight vertical streaks only, recycled inside the window pane. Never diagonal, never inside the room.
+
 ## 9. Acceptance checklist
 
 Before approving an asset: original (no reference copying) · follows locked high-iso painterly blue/red direction · reads from the fixed camera · cool-night + single-warm-anchor hierarchy · palette ratios respected · readable silhouette at gameplay scale · compatible with UI safe zones · restrained motion/bloom/shadows · represents emotional health with care.

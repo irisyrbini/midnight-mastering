@@ -100,6 +100,14 @@ The album can only be **finished once every musical instrument has been used** �
   - *Call a friend* spawns a **taller visitor** who walks in from the entrance for a big social boost and **leaves after 100s** (`visitor*` state, `stepVisitor`).
   - *Doom-scroll* lays the producer on the bed with a glowing phone (social ↓, stress ↑).
 - Alcohol (vodka, beer) raises creativity and drains energy; the handheld console lowers stress + sociability but raises creativity.
+- While the friend is **staying**, `Enter` opens the friend menu: *make a tune together* (speeds album work), *drink vodka together*, *play a video game together*. Each seats both characters (`friendActivity`, `friendActivityMinutes`).
+
+## 5c. Day cycle, weather & the second friend
+
+- **Day cycle** (`src/game/simulation/day-cycle.ts`, the single source of truth shared by the room lighting and the window): 12:00 AM deep night · 2:00 AM the sky begins to thin · **4:30 AM the sun starts rising** · 5:00–6:00 AM golden sunrise · full morning light by 8:00 AM · dusk 7:00–9:00 PM. `dayCycle(minuteOfDay)` returns `{ daylight, golden, sunProgress }`; the room's ambient/directional lights, sky, fog and the window's sky plane and sun disc all read from it, so they transition together.
+- **Weather** (`WeatherKind`: `clear | rain | rainbow | hail`) rerolls every 180 game-minutes. Bad weather (rain/hail) drains energy, nudges `burnout ↑`, and dims the outdoor light contribution to ~55% without touching the room's own practical lights. Rain is drawn **inside the window unit only** (`RainCurtain`) as straight vertical streaks recycled within the pane, so weather never enters the room. A gentle synthesized rain loop fades in while it rains (`startRain` / `stopRain`, driven by `SfxPlayer`).
+- **NPC 2** (`npc2*`) strolls the room between real destinations: it walks to a point, pauses 1.2–4.4s, then picks somewhere new (`stepNpc2`). Those pauses are what give the renderer genuine idle → walking → turning → stopping transitions.
+- **Smoking** runs on its own `smokingMinutes` timer (25 game-minutes, set by the `cigarettes` interaction) rather than the inspect card, so the animation stays visible after the card closes.
 
 ## 6. Endings (M3)
 

@@ -13,6 +13,22 @@ export function GameShell() {
     return () => engine.stop();
   }, []);
 
+  /** Browser save file: keeps the complete simulation snapshot and restores it on the next visit. */
+  useEffect(() => {
+    const key = 'mmha-save-v1';
+    try {
+      const saved = window.localStorage.getItem(key);
+      if (saved) useGameStore.getState().hydrateSession(JSON.parse(saved) as never);
+    } catch { /* An invalid/old local save should never prevent a new game from starting. */ }
+    let lastWrite = 0;
+    return useGameStore.subscribe((state) => {
+      const now = Date.now();
+      if (now - lastWrite < 1000) return;
+      lastWrite = now;
+      try { window.localStorage.setItem(key, JSON.stringify(state)); } catch { /* storage may be disabled */ }
+    });
+  }, []);
+
   useEffect(() => {
     const pressed = new Set<string>();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -26,9 +42,15 @@ export function GameShell() {
       if (event.key === 'Enter') {
         event.preventDefault();
         const state = useGameStore.getState();
+        // The corridor has one purposeful exit: the studio door.  Making Enter
+        // work here keeps re-entry reliable even if the door is off-screen or
+        // an overlay intercepts a pointer click.
+        if (state.activeLocationId === 'apartment-corridor') { state.returnToStudio(); return; }
         // Enter toggles: if an interaction overlay is open, a second Enter closes it; otherwise interact.
         if (state.activeVideoId) { state.closeVideo(); return; }
+        if (state.friendMenuOpen) { state.closeFriendMenu(); return; }
         if (state.dawOpen) { state.setDawOpen(false); return; }
+        if (state.selectedObjectId === 'visitor') { state.openFriendMenu(); return; }
         if (state.selectedObjectId) state.interact(state.selectedObjectId);
         return;
       }

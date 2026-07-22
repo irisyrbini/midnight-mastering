@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { interactionById } from '@/data/interactions';
 import { STUDIO_OBJECTS } from '@/data/studio-layout';
-import { crystalState, emotionalNeedDrift, INITIAL_EMOTIONAL_GRAPH, resolveEmotionGraph } from '@/game/simulation/emotionalGraph';
-import type { CrystalState, Ending, EmotionalGraphState, GamePhase, GameSnapshot, Interaction, NeedChange, ProducerNeeds } from '@/types/game';
+import { crystalState, emotionalNeedDrift, INITIAL_EMOTIONAL_GRAPH, resolveEmotionGraph, weightedEmotionalScore } from '@/game/simulation/emotionalGraph';
+import type { CrystalState, EmotionalEffect, Ending, EmotionalGraphState, FriendActivity, GamePhase, GameSnapshot, Interaction, NeedChange, ProducerNeeds, WeatherKind } from '@/types/game';
 
 type GameState = GameSnapshot & {
   setPhase: (phase: GamePhase) => void;
@@ -18,6 +18,9 @@ type GameState = GameSnapshot & {
   emotionalResolutionMinutes: number;
   albumProgress: number;
   albumCompleted: boolean;
+  confidence: number;
+  environment: number;
+  sleep: number;
   crystal: CrystalState;
   playerPosition: { x: number; y: number };
   moveTarget: MoveTarget;
@@ -37,6 +40,22 @@ type GameState = GameSnapshot & {
   visitorPhase: VisitorPhase;
   visitorPos: Point;
   visitorLeaveAt: number;
+  weather: WeatherKind;
+  weatherMinutes: number;
+  visitorCheckMinutes: number;
+  friendMenuOpen: boolean;
+  collaborationMinutes: number;
+  guitarNotesMinutes: number;
+  /** Counts down while the producer is actually smoking, so the animation outlives the inspect card. */
+  smokingMinutes: number;
+  friendActivity: FriendActivity | null;
+  friendActivityMinutes: number;
+  npc2Active: boolean;
+  npc2Pos: Point;
+  npc2LeaveAt: number;
+  /** Where NPC 2 is currently strolling to, and when its current pause ends. */
+  npc2Target: Point;
+  npc2PauseUntil: number;
   selectedObjectId?: string;
   activeVideoId?: string;
   ending: Ending;
@@ -49,8 +68,13 @@ type GameState = GameSnapshot & {
   setEntranceOpen: (open: boolean) => void;
   stepMovement: (deltaMs: number) => void;
   stepVisitor: (deltaMs: number) => void;
+  stepNpc2: (deltaMs: number) => void;
   selectObject: (id?: string) => void;
   closeVideo: () => void;
+  openFriendMenu: () => void;
+  closeFriendMenu: () => void;
+  doFriendActivity: (activity: FriendActivity) => void;
+  returnToStudio: () => void;
   choose: (kind: string) => void;
   dismissPrompt: () => void;
   pause: () => void;
@@ -66,7 +90,8 @@ type VisitorPhase = 'arriving' | 'staying' | 'leaving';
 type SfxCue = { id: string; n: number };
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
-const decayPerGameMinute: ProducerNeeds = { hunger: 0.16, energy: 0.12, hygiene: 0.06, social: 0.08, creativity: 0.09, love: 0.05 };
+export const GAME_MINUTES_PER_REAL_SECOND = 2.0;
+const decayPerGameMinute: ProducerNeeds = { hunger: 0.12, energy: 0.12, hygiene: 0.06, social: 0.08, creativity: 0.09, love: 0.05 };
 
 /** Point-and-click navigation target. `selectId` keeps a clicked object selected while walking to it. */
 type MoveTarget = { x: number; y: number; selectId?: string } | null;
@@ -76,6 +101,45 @@ type Point = { x: number; y: number };
 
 /** Walkable floor. Widened so the producer can roam the open front and walk behind the desk to the window. */
 const clampToRoom = (p: Point): Point => ({ x: Math.max(70, Math.min(1240, p.x)), y: Math.max(150, Math.min(780, p.y)) });
+
+// Gameplay collision is kept in the same logical coordinate space as the
+// room layout.  Small tabletop props remain decorative; these are the major
+// obstacles the producer should walk around.
+const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'entrance', 'closet']);
+const PLAYER_RADIUS = 14;
+const COLLIDER_INSET = 16;
+const isBlocked = (p: Point, radius = PLAYER_RADIUS) => STUDIO_OBJECTS.some((object) => {
+  if (!COLLIDER_IDS.has(object.id)) return false;
+  const inset = Math.min(COLLIDER_INSET, Math.min(object.width, object.height) * 0.22);
+  const left = object.x + inset - radius;
+  const right = object.x + object.width - inset + radius;
+  const top = object.y + inset - radius;
+  const bottom = object.y + object.height - inset + radius;
+  return p.x > left && p.x < right && p.y > top && p.y < bottom;
+});
+const collisionSafeStep = (from: Point, desired: Point) => {
+  const candidate = clampToRoom(desired);
+  // A saved session may place the producer on a chair/bed interaction point.
+  // Let that first input step out of the collider, then enforce collision
+  // normally so the character can never become permanently trapped.
+  if (isBlocked(from)) return candidate;
+  if (!isBlocked(candidate)) return candidate;
+  const xOnly = clampToRoom({ x: candidate.x, y: from.y });
+  if (!isBlocked(xOnly)) return xOnly;
+  const yOnly = clampToRoom({ x: from.x, y: candidate.y });
+  return isBlocked(yOnly) ? from : yOnly;
+};
+const approachPoint = (from: Point, objectId: string, fallback: Point) => {
+  const object = STUDIO_OBJECTS.find((item) => item.id === objectId);
+  if (!object) return fallback;
+  const candidates = [
+    { x: object.x + object.width / 2, y: object.y - PLAYER_RADIUS - 18 },
+    { x: object.x + object.width / 2, y: object.y + object.height + PLAYER_RADIUS + 18 },
+    { x: object.x - PLAYER_RADIUS - 18, y: object.y + object.height / 2 },
+    { x: object.x + object.width + PLAYER_RADIUS + 18, y: object.y + object.height / 2 },
+  ].map(clampToRoom).filter((point) => !isBlocked(point));
+  return candidates.sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y))[0] ?? fallback;
+};
 
 const nearestObjectId = (p: Point): string | undefined =>
   STUDIO_OBJECTS.reduce<{ id?: string; distance: number }>((best, object) => {
@@ -94,6 +158,7 @@ const ENTRANCE_POSITION = centerOf('entrance', { x: 256, y: 768 });
 
 /** Every musical instrument (incl. the lyric notebook) must be used before the album can be finished (see docs). */
 const INSTRUMENT_IDS = new Set(['acousticGuitar', 'electricGuitar', 'portasound', 'sk5', 'modularSynths', 'mic', 'lyricNotebook']);
+const INSTRUMENT_BONUS: Record<string, number> = { acousticGuitar: 2.2, electricGuitar: 2.4, portasound: 2.8, sk5: 3, modularSynths: 3.4, mic: 1.6, lyricNotebook: 2 };
 const REQUIRED_INSTRUMENT_COUNT = INSTRUMENT_IDS.size;
 const allInstrumentsUsed = (used: Record<string, boolean>) => [...INSTRUMENT_IDS].every((id) => used[id]);
 
@@ -109,8 +174,16 @@ const PHONE_PROMPT: Prompt = {
   title: 'Late-night phone.',
   choices: [
     { label: 'Call a friend', kind: 'call-friend' },
+    { label: 'Invite another friend', kind: 'invite-friend-2' },
     { label: 'Doom-scroll', kind: 'doom-scroll' },
     { label: 'Put it down', kind: 'dismiss' },
+  ],
+};
+const ENTRANCE_PROMPT: Prompt = {
+  title: 'The corridor is quiet. Leave the room?',
+  choices: [
+    { label: 'Step into the corridor', kind: 'leave-room' },
+    { label: 'Stay in the studio', kind: 'dismiss' },
   ],
 };
 
@@ -121,7 +194,7 @@ const wellbeing = (needs: ProducerNeeds) => Object.values(needs).reduce((sum, va
 
 /** Durable session defaults, reused by initial boot and restart so a new run is a clean slate. */
 const initialSession = () => ({
-  clock: { day: 1, minuteOfDay: 540 },
+  clock: { day: 1, minuteOfDay: 0 },
   needs: { hunger: 72, energy: 70, hygiene: 66, social: 48, creativity: 62, love: 54 } as ProducerNeeds,
   activeLocationId: 'apartment-studio',
   elapsedMs: 0,
@@ -135,6 +208,9 @@ const initialSession = () => ({
   emotionalResolutionMinutes: 0,
   albumProgress: 0,
   albumCompleted: false,
+  confidence: 38,
+  environment: 52,
+  sleep: 46,
   crystal: crystalState(INITIAL_EMOTIONAL_GRAPH),
   playerPosition: { x: 640, y: 510 },
   moveTarget: null as MoveTarget,
@@ -154,6 +230,20 @@ const initialSession = () => ({
   visitorPhase: 'arriving' as VisitorPhase,
   visitorPos: { x: 256, y: 768 } as Point,
   visitorLeaveAt: 0,
+  weather: 'clear' as WeatherKind,
+  weatherMinutes: 0,
+  visitorCheckMinutes: 0,
+  friendMenuOpen: false,
+  collaborationMinutes: 0,
+  guitarNotesMinutes: 0,
+  smokingMinutes: 0,
+  friendActivity: null as FriendActivity | null,
+  friendActivityMinutes: 0,
+  npc2Active: false,
+  npc2Pos: { x: 880, y: 560 } as Point,
+  npc2LeaveAt: 0,
+  npc2Target: { x: 880, y: 560 } as Point,
+  npc2PauseUntil: 0,
   selectedObjectId: undefined as string | undefined,
   activeVideoId: undefined as string | undefined,
   ending: null as Ending,
@@ -177,10 +267,15 @@ export const useGameStore = create<GameState>((set) => ({
   movePlayer: (direction) => set((state) => {
     if (state.phase !== 'playing') return state;
     // Keyboard steps cancel any active click-to-move target so input stays predictable, and stand the producer up.
-    const playerPosition = clampToRoom({ x: state.playerPosition.x + direction.x, y: state.playerPosition.y + direction.y });
-    return { playerPosition, moveTarget: null, seated: false, lyingDown: false, selectedObjectId: nearestObjectId(playerPosition) };
+    const playerPosition = collisionSafeStep(state.playerPosition, { x: state.playerPosition.x + direction.x, y: state.playerPosition.y + direction.y });
+    const friendNearby = state.visitorActive && state.visitorPhase === 'staying' && Math.hypot(playerPosition.x - state.visitorPos.x, playerPosition.y - state.visitorPos.y) < SELECT_RADIUS;
+    return { playerPosition, moveTarget: null, seated: false, lyingDown: false, selectedObjectId: friendNearby ? 'visitor' : nearestObjectId(playerPosition) };
   }),
-  setMoveTarget: (target) => set((state) => (state.phase === 'playing' ? { moveTarget: { ...clampToRoom(target), selectId: target.selectId }, seated: false, lyingDown: false } : state)),
+  setMoveTarget: (target) => set((state) => {
+    if (state.phase !== 'playing') return state;
+    const destination = target.selectId ? approachPoint(state.playerPosition, target.selectId, clampToRoom(target)) : clampToRoom(target);
+    return { moveTarget: { ...destination, selectId: target.selectId }, seated: false, lyingDown: false };
+  }),
   setRunning: (running) => set((state) => (state.running === running ? state : { running })),
   setEntranceOpen: (entranceOpen) => set((state) => (state.entranceOpen === entranceOpen ? state : { entranceOpen })),
   stepMovement: (deltaMs) => set((state) => {
@@ -190,37 +285,89 @@ export const useGameStore = create<GameState>((set) => ({
     const dy = state.moveTarget.y - state.playerPosition.y;
     const distance = Math.hypot(dx, dy);
     if (distance <= Math.max(step, 3)) {
-      const playerPosition = clampToRoom(state.moveTarget);
+      const playerPosition = collisionSafeStep(state.playerPosition, state.moveTarget);
+      // A target can be inside an object's footprint when it came from an old
+      // save; stop safely at the edge and still allow the interaction prompt.
+      if (Math.hypot(playerPosition.x - state.moveTarget.x, playerPosition.y - state.moveTarget.y) > SELECT_RADIUS && state.moveTarget.selectId) {
+        return { playerPosition, moveTarget: null, selectedObjectId: state.moveTarget.selectId };
+      }
       return { playerPosition, moveTarget: null, selectedObjectId: state.moveTarget.selectId ?? nearestObjectId(playerPosition) };
     }
-    const playerPosition = clampToRoom({ x: state.playerPosition.x + (dx / distance) * step, y: state.playerPosition.y + (dy / distance) * step });
+    const playerPosition = collisionSafeStep(state.playerPosition, { x: state.playerPosition.x + (dx / distance) * step, y: state.playerPosition.y + (dy / distance) * step });
     return { playerPosition, selectedObjectId: state.moveTarget.selectId ?? nearestObjectId(playerPosition) };
   }),
   selectObject: (selectedObjectId) => set({ selectedObjectId }),
   closeVideo: () => set({ activeVideoId: undefined }),
+  openFriendMenu: () => set((state) => state.visitorActive && state.visitorPhase === 'staying' ? { friendMenuOpen: true } : state),
+  closeFriendMenu: () => set({ friendMenuOpen: false }),
+  returnToStudio: () => set({ activeLocationId: 'apartment-studio', playerPosition: { x: 640, y: 510 }, moveTarget: null, selectedObjectId: undefined }),
+  doFriendActivity: (kind) => set((state) => {
+    if (!state.visitorActive || state.visitorPhase !== 'staying') return state;
+    const activities: Record<FriendActivity, { needs: NeedChange; emotions: EmotionalEffect[]; collaboration?: number }> = {
+      tune: { needs: { creativity: 12, social: 7, energy: -3 }, emotions: [{ node: 'creativeFlow', direction: 'up' }, { node: 'hope', direction: 'up' }], collaboration: 90 },
+      vodka: { needs: { social: 9, love: 5, energy: -5, hygiene: -3 }, emotions: [{ node: 'love', direction: 'up' }, { node: 'addiction', direction: 'up' }] },
+      'video-game': { needs: { social: 15, love: 12, energy: 2 }, emotions: [{ node: 'love', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
+    };
+    const result = activities[kind];
+    const emotionalGraph = resolveEmotionGraph(state.emotionalGraph, result.emotions);
+    const positions: Record<FriendActivity, { player: Point; friend: Point }> = {
+      tune: { player: SIT_POSITION, friend: centerOf('friendChair', { x: 750, y: 480 }) },
+      vodka: { player: SIT_POSITION, friend: centerOf('friendChair', { x: 750, y: 480 }) },
+      'video-game': { player: SIT_POSITION, friend: centerOf('friendChair', { x: 750, y: 480 }) },
+    };
+    const pose = positions[kind];
+    return { needs: applyNeedChange(state.needs, result.needs), emotionalGraph, crystal: crystalState(emotionalGraph), collaborationMinutes: result.collaboration ?? state.collaborationMinutes, friendMenuOpen: false, activeVideoId: kind === 'video-game' ? 'switch' : undefined, friendActivity: kind, friendActivityMinutes: 90, playerPosition: pose.player, visitorPos: pose.friend, seated: true, workingOnMusic: kind === 'tune', dawOpen: false };
+  }),
   tick: (deltaMs) => set((state) => {
     if (state.phase !== 'playing') return state;
-    // 1 real second is 1 game minute: visible, continuous decline without an idle flood.
-    const gameMinutes = deltaMs / 1000;
+    // Slower pacing leaves room for exploration and interactions.
+    const gameMinutes = (deltaMs / 1000) * GAME_MINUTES_PER_REAL_SECOND;
     let needs = applyNeedChange(state.needs, Object.fromEntries(Object.entries(decayPerGameMinute).map(([key, value]) => [key, -value * gameMinutes])));
-    needs = applyNeedChange(needs, Object.fromEntries(Object.entries(emotionalNeedDrift(state.emotionalGraph)).map(([key, value]) => [key, value * gameMinutes])));
+    const weatherMinutes = state.weatherMinutes + gameMinutes;
+    const weatherChanged = weatherMinutes >= 180;
+    const weatherKinds: WeatherKind[] = ['clear', 'rain', 'rainbow', 'hail'];
+    const weather = weatherChanged ? weatherKinds[Math.floor(Math.random() * weatherKinds.length)] : state.weather;
+    const badWeather = weather === 'rain' || weather === 'hail';
+    if (badWeather) needs = applyNeedChange(needs, { energy: -(weather === 'hail' ? 0.13 : 0.07) * gameMinutes });
+    if (state.npc2Active) needs = applyNeedChange(needs, { social: 0.025 * gameMinutes, love: 0.01 * gameMinutes });
+    const weatherGraph = weatherChanged && badWeather ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'burnout', direction: 'up' }]) : state.emotionalGraph;
+    needs = applyNeedChange(needs, Object.fromEntries(Object.entries(emotionalNeedDrift(weatherGraph)).map(([key, value]) => [key, value * gameMinutes])));
     const totalMinutes = state.clock.minuteOfDay + gameMinutes;
+    // This prototype's playable day is midnight through noon. Album progress
+    // deliberately does not appear in the reset frame, so it carries forward.
+    const dayCount = Math.floor(totalMinutes / 720);
+    const dayFinished = dayCount > 0;
+    const dailyNeeds: ProducerNeeds = { hunger: 72, energy: 70, hygiene: 66, social: 48, creativity: 62, love: 54 };
+    if (dayFinished) needs = dailyNeeds;
     // Stress creeps up over the night — faster under burnout/obsession/loneliness and while grinding, easier when in flow.
-    const g = state.emotionalGraph;
+    const g = weatherGraph;
     const stressDrift = 0.03 + (g.burnout === 'high' ? 0.07 : 0) + (g.obsession === 'high' ? 0.04 : 0) + (g.loneliness === 'high' ? 0.03 : 0) - (g.creativeFlow === 'high' ? 0.03 : 0) + (state.workingOnMusic ? 0.14 : 0);
     // Wellness boost: when every need is full, the crystal recovers faster (positive graph resolution every ~8 game-min).
     const allFull = Math.min(...Object.values(needs)) >= 95;
     const wellnessAccum = allFull ? state.wellnessMinutes + gameMinutes : 0;
     const wellnessResolve = allFull && wellnessAccum >= 8;
     const baseGraph = wellnessResolve
-      ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }, { node: 'burnout', direction: 'down' }, { node: 'loneliness', direction: 'down' }])
-      : state.emotionalGraph;
+      ? resolveEmotionGraph(weatherGraph, [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }, { node: 'burnout', direction: 'down' }, { node: 'loneliness', direction: 'down' }])
+      : weatherGraph;
+    const visitorCheckMinutes = state.visitorCheckMinutes + gameMinutes;
+    const randomVisit = !state.visitorActive && visitorCheckMinutes >= 150 && Math.random() < 0.28;
     const base = {
       elapsedMs: state.elapsedMs + deltaMs,
       needs,
-      clock: { day: state.clock.day + Math.floor(totalMinutes / 1440), minuteOfDay: totalMinutes % 1440 },
+      clock: { day: state.clock.day + dayCount, minuteOfDay: totalMinutes % 720 },
       stress: clamp(state.stress + stressDrift * gameMinutes),
       wellnessMinutes: wellnessResolve ? 0 : wellnessAccum,
+      weather,
+      weatherMinutes: weatherChanged ? 0 : weatherMinutes,
+      visitorCheckMinutes: randomVisit || visitorCheckMinutes >= 150 ? 0 : visitorCheckMinutes,
+      collaborationMinutes: Math.max(0, state.collaborationMinutes - gameMinutes),
+      guitarNotesMinutes: Math.max(0, state.guitarNotesMinutes - gameMinutes),
+      smokingMinutes: Math.max(0, state.smokingMinutes - gameMinutes),
+      friendActivity: state.friendActivityMinutes <= gameMinutes ? null : state.friendActivity,
+      friendActivityMinutes: Math.max(0, state.friendActivityMinutes - gameMinutes),
+      npc2Active: state.npc2Active && state.elapsedMs < state.npc2LeaveAt,
+      workingOnMusic: state.friendActivity === 'tune' && state.friendActivityMinutes <= gameMinutes ? false : state.workingOnMusic,
+      ...(randomVisit ? { visitorActive: true, visitorPhase: 'arriving' as VisitorPhase, visitorPos: { ...ENTRANCE_POSITION }, visitorLeaveAt: state.elapsedMs + 120000 } : {}),
     };
     // Session-frame outcome: a win halts the run immediately; sustained rock-bottom wellbeing collapses it.
     const sessionFrame = (finalNeeds: ProducerNeeds, won: boolean) => {
@@ -229,7 +376,12 @@ export const useGameStore = create<GameState>((set) => ({
       if (collapseMinutes >= COLLAPSE_SUSTAIN_MINUTES) return { phase: 'ending' as GamePhase, ending: 'collapse' as Ending, collapseMinutes };
       return { collapseMinutes };
     };
-    if (!state.workingOnMusic) return { ...base, emotionalGraph: baseGraph, crystal: crystalState(baseGraph), inspirationMinutes: Math.max(0, state.inspirationMinutes - gameMinutes), ...sessionFrame(needs, false) };
+    const liveInspiration = Math.max(0, state.inspirationMinutes - gameMinutes);
+    const liveConfidence = Math.max(0, Math.min(100, state.confidence + (needs.love - 50) * 0.002 * gameMinutes));
+    const liveEnvironment = Math.max(0, Math.min(100, state.environment + (weather === 'clear' ? 0.01 : -0.02) * gameMinutes));
+    const liveSleep = Math.max(0, Math.min(100, state.sleep - 0.025 * gameMinutes));
+    const liveScore = weightedEmotionalScore(needs, { inspiration: liveInspiration, confidence: liveConfidence, environment: liveEnvironment, sleep: liveSleep }, baseGraph);
+    if (!state.workingOnMusic) return { ...base, emotionalGraph: baseGraph, crystal: crystalState(baseGraph, liveScore), inspirationMinutes: liveInspiration, confidence: liveConfidence, environment: liveEnvironment, sleep: liveSleep, ...sessionFrame(needs, false) };
 
     // Music work has its own sustained cost beyond normal living decay.
     needs = applyNeedChange(needs, { energy: -0.22 * gameMinutes, hunger: -0.18 * gameMinutes, hygiene: -0.08 * gameMinutes, social: -0.14 * gameMinutes, creativity: 0.24 * gameMinutes });
@@ -241,13 +393,17 @@ export const useGameStore = create<GameState>((set) => ({
     const emotionalResolutionMinutes = state.emotionalResolutionMinutes + gameMinutes;
     const resolveWorkEmotion = emotionalResolutionMinutes >= 15;
     const emotionalGraph = resolveWorkEmotion ? resolveEmotionGraph(baseGraph, [{ node: 'creativeFlow', direction: 'up' }, { node: 'burnout', direction: 'up' }, { node: 'obsession', direction: 'up' }]) : baseGraph;
-    const crystal = crystalState(emotionalGraph);
-    const albumProgress = clamp(state.albumProgress + 0.12 * gameMinutes);
+    const crystal = crystalState(emotionalGraph, weightedEmotionalScore(needs, { inspiration: liveInspiration, confidence: liveConfidence, environment: liveEnvironment, sleep: liveSleep }, emotionalGraph));
+    const crystalMultiplier = crystal === 'green' ? 1.5 : crystal === 'red' ? 0.7 : 1;
+    const albumProgress = clamp(state.albumProgress + (state.collaborationMinutes > 0 ? 0.24 : 0.12) * gameMinutes * crystalMultiplier);
     // The album can only be finished once every instrument (incl. the lyric notebook) has been used.
     const albumCompleted = state.albumCompleted || (albumProgress >= 100 && crystal === 'green' && allInstrumentsUsed(state.instrumentsUsed));
     return {
       ...base,
       needs,
+      confidence: liveConfidence,
+      environment: liveEnvironment,
+      sleep: liveSleep,
       musicQuality: clamp(state.musicQuality + qualityRate * gameMinutes),
       albumProgress,
       albumCompleted,
@@ -263,14 +419,16 @@ export const useGameStore = create<GameState>((set) => ({
     const interaction = interactionById[interactionId];
     if (!interaction || state.phase !== 'playing') return state;
     const emotionalGraph = resolveEmotionGraph(state.emotionalGraph, interaction.emotionalEffects);
-    const crystal = crystalState(emotionalGraph);
+    const emotionalScore = weightedEmotionalScore(state.needs, { inspiration: state.inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
+    const crystal = crystalState(emotionalGraph, emotionalScore);
     const inspirationMinutes = interaction.inspirationMinutes ? Math.max(state.inspirationMinutes, interaction.inspirationMinutes) : state.inspirationMinutes;
     const sfxCue = { id: interactionId, n: state.sfxCue.n + 1 };
     const instrumentsUsed = INSTRUMENT_IDS.has(interactionId) ? { ...state.instrumentsUsed, [interactionId]: true } : state.instrumentsUsed;
     // The chair toggles sitting; the bed toggles lying. Snap onto the furniture, use again to get up. No playback modal.
+    const bonus = INSTRUMENT_BONUS[interactionId] ?? 0;
     if (interaction.action === 'sit') {
       const seated = !state.seated;
-      return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? SIT_POSITION : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+      return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? SIT_POSITION : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue, albumProgress: clamp(state.albumProgress + bonus) };
     }
     if (interaction.action === 'lie') {
       const lyingDown = !state.lyingDown;
@@ -292,11 +450,20 @@ export const useGameStore = create<GameState>((set) => ({
         needs: windowOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
         stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
+    if (interaction.action === 'entrance') {
+      return { entranceOpen: true, prompt: ENTRANCE_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+    }
     // Any other interaction stands the producer up. The entrance swings its door open.
     const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
     const stress = clamp(state.stress + (interaction.stressDelta ?? 0));
-    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed };
-    return { needs: applyNeedChange(state.needs, interaction.changes), activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed };
+    const guitarNotesMinutes = interactionId === 'acousticGuitar' || interactionId === 'electricGuitar' ? 20 : state.guitarNotesMinutes;
+    const seatedForAction = interactionId === 'vodka' || interactionId === 'switch';
+    const playerPosition = seatedForAction ? SIT_POSITION : state.playerPosition;
+    if (interaction.action === 'open-anime') return { needs: applyNeedChange(state.needs, interaction.changes), dawOpen: false, workingOnMusic: false, activeVideoId: 'anime', lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes: Math.max(inspirationMinutes, 20), guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+    const updatedNeeds = applyNeedChange(state.needs, interaction.changes);
+    const updatedScore = weightedEmotionalScore(updatedNeeds, { inspiration: inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
+    return { needs: updatedNeeds, activeVideoId: interaction.id, guitarNotesMinutes, smokingMinutes: interaction.id === 'cigarettes' ? 25 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
   }),
   dismissPrompt: () => set({ prompt: null }),
   choose: (kind) => set((state) => {
@@ -309,8 +476,14 @@ export const useGameStore = create<GameState>((set) => ({
       const graph = resolveEmotionGraph(state.emotionalGraph, [{ node: 'loneliness', direction: 'down' }, { node: 'love', direction: 'up' }]);
       return { prompt: null, visitorActive: true, visitorPhase: 'arriving' as VisitorPhase, visitorPos: { ...ENTRANCE_POSITION }, visitorLeaveAt: state.elapsedMs + 100000, emotionalGraph: graph, crystal: crystalState(graph), lastInteraction: interactionById.friend ?? state.lastInteraction };
     }
+    if (kind === 'invite-friend-2') {
+      return { prompt: null, npc2Active: true, npc2Pos: { x: 880, y: 560 }, npc2Target: { x: 880, y: 560 }, npc2PauseUntil: state.elapsedMs + 900, npc2LeaveAt: state.elapsedMs + 180000, needs: applyNeedChange(state.needs, { social: 10, love: 3 }), stress: clamp(state.stress - 4) };
+    }
     if (kind === 'doom-scroll') {
       return { prompt: null, lyingDown: true, scrolling: true, seated: false, playerPosition: LIE_POSITION, moveTarget: null, needs: applyNeedChange(state.needs, { social: -8 }), stress: clamp(state.stress + 6), lastInteraction: interactionById.doomscroll ?? state.lastInteraction };
+    }
+    if (kind === 'leave-room') {
+      return { prompt: null, activeLocationId: 'apartment-corridor', playerPosition: { x: 640, y: 510 }, moveTarget: null, entranceOpen: false, selectedObjectId: undefined, needs: applyNeedChange(state.needs, { social: 3, energy: -1 }) };
     }
     // dismiss / close-fridge
     return { prompt: null, fridgeOpen: false };
@@ -320,7 +493,7 @@ export const useGameStore = create<GameState>((set) => ({
     const step = 320 * (deltaMs / 1000);
     // Head for the player while visiting, back to the entrance when leaving.
     const goingHome = state.visitorPhase === 'leaving';
-    const target = goingHome ? ENTRANCE_POSITION : { x: state.playerPosition.x - 95, y: state.playerPosition.y + 10 };
+    const target = goingHome ? ENTRANCE_POSITION : state.friendActivity ? { x: state.playerPosition.x - 95, y: state.playerPosition.y + 10 } : centerOf('modularSynths', { x: 320, y: 277 });
     const dx = target.x - state.visitorPos.x;
     const dy = target.y - state.visitorPos.y;
     const dist = Math.hypot(dx, dy);
@@ -330,10 +503,34 @@ export const useGameStore = create<GameState>((set) => ({
     }
     if (state.visitorPhase === 'staying') {
       if (state.elapsedMs >= state.visitorLeaveAt) return { visitorPhase: 'leaving' as VisitorPhase };
-      return { needs: applyNeedChange(state.needs, { social: 0.4 * (deltaMs / 1000) }) }; // stay warm while together
+      // NPC 1's default idle is to walk to the modular rack and work there.
+      // Once there, keep the small social benefit without constantly chasing
+      // the player around the room.
+      if (state.friendActivity || dist <= 45) return { needs: applyNeedChange(state.needs, { social: 0.4 * (deltaMs / 1000) }) };
     }
     if (goingHome && dist <= 40) return { visitorActive: false }; // out the door
     const visitorPos = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step };
     return { visitorPos };
+  }),
+  /**
+   * NPC 2 strolls the room between real destinations instead of tracing a fixed curve: it walks to a
+   * point, stands there a moment, then picks somewhere new. The pauses are what give the renderer
+   * genuine idle → walking → turning → stopping transitions to animate.
+   */
+  stepNpc2: (deltaMs) => set((state) => {
+    if (!state.npc2Active || state.phase !== 'playing') return state;
+    if (state.elapsedMs < state.npc2PauseUntil) return state; // standing still, taking the room in
+    const dx = state.npc2Target.x - state.npc2Pos.x;
+    const dy = state.npc2Target.y - state.npc2Pos.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 24) {
+      // Arrived — linger for a beat, then wander somewhere else in the open floor.
+      return {
+        npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200,
+        npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }),
+      };
+    }
+    const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
+    return { npc2Pos: { x: state.npc2Pos.x + (dx / dist) * step, y: state.npc2Pos.y + (dy / dist) * step } };
   }),
 }));

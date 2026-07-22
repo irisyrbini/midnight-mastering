@@ -2,7 +2,7 @@ export type StudioObject = { id: string; x: number; y: number; width: number; he
 
 /** Original bedroom-studio map. Coordinates preserve the required window → desk → bed/door composition. */
 export const STUDIO_OBJECTS: StudioObject[] = [
-  { id: 'window', x: 140, y: 90, width: 270, height: 92, color: '#31597a', shape: 'window' },
+  { id: 'window', x: 120, y: 70, width: 330, height: 132, color: '#31597a', shape: 'window' },
   { id: 'posters', x: 460, y: 82, width: 100, height: 78, color: '#6d4056' },
   { id: 'posters2', x: 635, y: 84, width: 100, height: 78, color: '#3a5a6d' },
   { id: 'posters3', x: 788, y: 80, width: 100, height: 78, color: '#5c4a2e' },
@@ -13,6 +13,7 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'modularSynths', x: 238, y: 225, width: 170, height: 105, color: '#61455a' },
   { id: 'musicDesk', x: 492, y: 202, width: 350, height: 160, color: '#6c5b5c' },
   { id: 'chair', x: 604, y: 430, width: 90, height: 100, color: '#20242c' },
+  { id: 'friendChair', x: 704, y: 430, width: 90, height: 100, color: '#292d36' },
   { id: 'dualMonitors', x: 586, y: 185, width: 155, height: 54, color: '#3d7480' },
   { id: 'mic', x: 470, y: 300, width: 46, height: 46, color: '#20242c' },
   { id: 'phone', x: 604, y: 344, width: 40, height: 62, color: '#0c0e14' },

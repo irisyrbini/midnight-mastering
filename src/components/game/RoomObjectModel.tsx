@@ -1,11 +1,12 @@
 'use client';
 
 import * as THREE from 'three';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Sparkles } from '@react-three/drei';
 import type { StudioObject } from '@/data/studio-layout';
 import { useGameStore } from '@/store/game-store';
+import { dayCycle } from '@/game/simulation/day-cycle';
 import type { CrystalState } from '@/types/game';
 
 /** A real waisted guitar-body outline (figure-8 with a concave waist), extruded thin so it reads as a guitar. */
@@ -178,16 +179,59 @@ function EntranceDoor() {
 }
 
 /** Night window with a starfield; its glass pane tilts open (awning-style) while `windowOpen`. */
+/**
+ * Rain seen through the glass. Straight vertical streaks, recycled inside the window opening only —
+ * the curtain is a thin slab clipped to the pane, so nothing ever falls into the room.
+ */
+function RainCurtain({ hail }: { hail: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const drops = useMemo(() => Array.from({ length: hail ? 46 : 70 }, () => ({
+    x: (Math.random() - 0.5) * 3.3,
+    y: (Math.random() - 0.5) * 2.15,
+    speed: (hail ? 3.6 : 2.4) + Math.random() * (hail ? 1.8 : 1.4),
+    length: hail ? 0.05 + Math.random() * 0.04 : 0.15 + Math.random() * 0.24,
+  })), [hail]);
+  useFrame((_, delta) => {
+    const meshes = group.current?.children;
+    if (!meshes) return;
+    for (let i = 0; i < drops.length; i += 1) {
+      const drop = drops[i];
+      drop.y -= drop.speed * delta;
+      if (drop.y < -1.1) { drop.y = 1.1; drop.x = (Math.random() - 0.5) * 3.3; } // recycle at the top
+      meshes[i].position.set(drop.x, drop.y, 0.07);
+    }
+  });
+  return <group ref={group}>
+    {drops.map((drop, index) => <mesh key={index} position={[drop.x, drop.y, 0.07]}>
+      <boxGeometry args={[hail ? 0.04 : 0.018, drop.length, 0.01]} />
+      <meshBasicMaterial color={hail ? '#eaf6ff' : '#a6d4f7'} transparent opacity={hail ? 0.85 : 0.5} />
+    </mesh>)}
+  </group>;
+}
+
 function WindowUnit() {
   const open = useGameStore((state) => state.windowOpen);
+  const minute = useGameStore((state) => Math.floor(state.clock.minuteOfDay));
+  const weather = useGameStore((state) => state.weather);
   const pane = useRef<THREE.Group>(null);
+  const { daylight, golden, sunProgress } = dayCycle(minute);
+  const wet = weather === 'rain' || weather === 'hail';
+  // Night → day, warmed through the golden hour, then dulled and darkened while it rains.
+  const sky = new THREE.Color('#09142b')
+    .lerp(new THREE.Color('#91cde7'), daylight)
+    .lerp(new THREE.Color('#e79a54'), golden * 0.5)
+    .lerp(new THREE.Color(wet ? '#2b3d4f' : '#0b1426'), weather === 'clear' ? 0 : wet ? 0.45 : 0.32)
+    .getStyle();
   useFrame(() => { if (pane.current) pane.current.rotation.x += ((open ? -0.5 : 0) - pane.current.rotation.x) * 0.14; });
   return <group position={[0, 2.2, 0]}>
-    <mesh><boxGeometry args={[3.0, 1.9, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
-    <mesh position={[0, 0, 0.05]}><planeGeometry args={[2.7, 1.6]} /><meshStandardMaterial color="#0a1224" emissive="#0e1c34" emissiveIntensity={open ? 0.9 : 0.5} toneMapped={false} /></mesh>
-    <group position={[0, 0.2, 0.12]}><Sparkles count={46} scale={[2.5, 1.35, 0.25]} size={2.6} speed={0.35} color="#dfe8ff" /></group>
-    {[[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, 0.1]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
+    <mesh><boxGeometry args={[3.8, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    <mesh position={[0, 0, 0.05]}><planeGeometry args={[3.5, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
+    {/* The sun clears the horizon from 4:30 AM and climbs; it is deepest orange through the golden hour. */}
+    {daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, 0.12]}><sphereGeometry args={[0.16 + daylight * 0.1, 16, 12]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} /></mesh>}
+    {daylight < 0.42 && <group position={[0, 0.2, 0.12]}><Sparkles count={46} scale={[3.2, 1.9, 0.25]} size={2.6} speed={0.35} color="#dfe8ff" /></group>}
+    {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, 0.1]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
     {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, 0.09]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
+    {wet && <RainCurtain hail={weather === 'hail'} />}
     {/* openable glass pane, hinged at the bottom */}
     <group ref={pane} position={[0, -0.75, 0.13]}>
       <mesh position={[0, 0.75, 0]}><boxGeometry args={[2.5, 1.5, 0.04]} /><meshStandardMaterial color="#6f9fc0" transparent opacity={0.22} metalness={0.3} roughness={0.1} /></mesh>
@@ -220,7 +264,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     </group>;
 
     // Office chair: seat + backrest (toward the camera) + post + wheeled star base. The producer sits here.
-    case 'chair': return <group>
+    case 'chair':
+    case 'friendChair': return <group>
       <mesh position={[0, 0.55, 0]} castShadow><boxGeometry args={[0.52, 0.1, 0.5]} /><meshStandardMaterial color="#20242c" roughness={0.7} /></mesh>
       <mesh position={[0, 0.92, 0.23]} castShadow><boxGeometry args={[0.5, 0.66, 0.09]} /><meshStandardMaterial color="#191c23" roughness={0.7} /></mesh>
       <mesh position={[0, 0.32, 0]}><cylinderGeometry args={[0.05, 0.05, 0.5, 10]} /><meshStandardMaterial color="#15151b" metalness={0.5} /></mesh>
@@ -351,7 +396,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
 
     case 'bed': return <group>
       <mesh position={[0, 0.25, 0]} castShadow receiveShadow><boxGeometry args={[2.2, 0.4, 1.6]} /><meshStandardMaterial color="#54667d" /></mesh>
-      <mesh position={[-0.68, 0.55, -0.42]} castShadow><boxGeometry args={[0.7, 0.24, 0.5]} /><meshStandardMaterial color="#c9c4b8" /></mesh>
+      {/* Horizontal pillow across the head of the mattress. */}
+      <mesh position={[-0.68, 0.55, -0.42]} castShadow><boxGeometry args={[1.12, 0.24, 0.42]} /><meshStandardMaterial color="#c9c4b8" /></mesh>
       <mesh position={[0.3, 0.5, 0.12]} castShadow><boxGeometry args={[1.44, 0.16, 1.44]} /><meshStandardMaterial color="#3f5063" /></mesh>
     </group>;
 

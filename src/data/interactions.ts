@@ -4,8 +4,9 @@ import type { Interaction } from '@/types/game';
 export const INTERACTIONS: Interaction[] = [
   { id: 'musicDesk', label: 'Music production desk', description: 'Sit down and face the unfinished record.', changes: { creativity: 4, energy: -2 }, action: 'open-daw', emotionalEffects: [{ node: 'obsession', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }] },
   { id: 'chair', label: 'Studio chair', description: 'Settle into the chair. Interact again to stand.', changes: {}, action: 'sit', emotionalEffects: [{ node: 'burnout', direction: 'down' }] },
+  { id: 'friendChair', label: 'Second studio chair', description: 'A chair pulled close for company.', changes: {}, emotionalEffects: [{ node: 'love', direction: 'up' }] },
   { id: 'instrumentTable', label: 'Instrument table', description: 'Synths and keyboards, within reach.', changes: { creativity: 3 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }] },
-  { id: 'dualMonitors', label: 'Computer', description: 'Wake the screens and open the session.', changes: { creativity: 3, energy: -2 }, action: 'open-daw', emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'obsession', direction: 'up' }] },
+  { id: 'dualMonitors', label: 'Monitor 1 · Anime', description: 'Put on a favorite anime and let the room breathe.', changes: { love: 2, creativity: 2 }, action: 'open-anime', stressDelta: -10, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
   { id: 'laptop', label: 'Laptop', description: 'Open the DAW session.', changes: {}, action: 'open-daw', emotionalEffects: [{ node: 'obsession', direction: 'up' }, { node: 'creativeFlow', direction: 'up' }] },
   { id: 'studioMonitors', label: 'White studio monitors', description: 'Listen back without hiding from the flaws.', changes: { creativity: 6, energy: -2 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'hope', direction: 'up' }] },
   { id: 'portasound', label: 'Compact PortaSound', description: 'Play a small, imperfect melody.', changes: { creativity: 8, energy: -2 }, emotionalEffects: [{ node: 'creativeFlow', direction: 'up' }, { node: 'love', direction: 'up' }] },
@@ -36,10 +37,11 @@ export const INTERACTIONS: Interaction[] = [
   // Synthetic interactions used only for the message card (no room object of their own).
   { id: 'beer', label: 'Beer', description: 'Crack a beer. It loosens something creative, but the energy fades.', changes: {}, emotionalEffects: [] },
   { id: 'friend', label: 'A friend visits', description: 'They came over. The room feels less empty already.', changes: {}, emotionalEffects: [] },
+  { id: 'anime', label: 'Favorite anime', description: 'A soft, colorful episode plays on the monitor.', changes: {}, emotionalEffects: [] },
   { id: 'doomscroll', label: 'Doom-scrolling', description: 'Lying in bed, thumb scrolling, hours you will not get back.', changes: {}, emotionalEffects: [] },
   { id: 'cables', label: 'Cable pile', description: 'Untangle one small problem.', changes: { creativity: 2, hygiene: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
   { id: 'bathroom', label: 'Bathroom door', description: 'Take a long shower and reset.', changes: { hygiene: 30, energy: -3, creativity: 2 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
-  { id: 'entrance', label: 'Entrance', description: 'Step into the night and be around other people.', changes: { social: 20, energy: -3, hygiene: -1 }, stressDelta: -12, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
+  { id: 'entrance', label: 'Entrance', description: 'Open the door and decide whether to leave the room.', changes: { social: 20, energy: -3, hygiene: -1 }, action: 'entrance', stressDelta: -12, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
   { id: 'closet', label: 'Closet', description: 'Choose clothes that make leaving possible.', changes: { hygiene: 3, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
 ];
 

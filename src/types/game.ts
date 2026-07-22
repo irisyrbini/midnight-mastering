@@ -32,7 +32,7 @@ export type Interaction = {
   label: string;
   description: string;
   changes: NeedChange;
-  action?: 'open-daw' | 'sit' | 'lie' | 'fridge' | 'window' | 'phone-bed';
+  action?: 'open-daw' | 'open-anime' | 'sit' | 'lie' | 'fridge' | 'window' | 'phone-bed' | 'entrance';
   emotionalEffects?: EmotionalEffect[];
   inspirationMinutes?: number;
   /** Change to the stress gauge, applied on interact (negative = relief). */
@@ -44,3 +44,5 @@ export type EmotionLevel = 'low' | 'steady' | 'high';
 export type EmotionalGraphState = Record<EmotionalVariable, EmotionLevel>;
 export type EmotionalEffect = { node: EmotionalVariable; direction: 'up' | 'down' };
 export type CrystalState = 'red' | 'yellow' | 'green';
+export type WeatherKind = 'clear' | 'rain' | 'rainbow' | 'hail';
+export type FriendActivity = 'tune' | 'vodka' | 'video-game';

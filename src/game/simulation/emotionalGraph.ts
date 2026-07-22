@@ -1,4 +1,4 @@
-import type { CrystalState, EmotionalEffect, EmotionalGraphState, EmotionalVariable, NeedChange } from '@/types/game';
+import type { CrystalState, EmotionalEffect, EmotionalGraphState, EmotionalVariable, NeedChange, ProducerNeeds } from '@/types/game';
 
 const LEVELS = ['low', 'steady', 'high'] as const;
 
@@ -7,10 +7,25 @@ export const INITIAL_EMOTIONAL_GRAPH: EmotionalGraphState = {
 };
 
 /** The crystal is a compact, player-facing reading of the hidden emotional graph. */
-export function crystalState(graph: EmotionalGraphState): CrystalState {
+export function crystalState(graph: EmotionalGraphState, score?: number): CrystalState {
+  if (score !== undefined) {
+    if (score >= 68) return 'green';
+    if (score >= 40) return 'yellow';
+    return 'red';
+  }
   if (graph.hope === 'low' || graph.loneliness === 'high' || graph.burnout === 'high') return 'red';
   if (graph.hope === 'high' && graph.love === 'high' && graph.loneliness === 'low' && graph.addiction !== 'high') return 'green';
   return 'yellow';
+}
+
+/** Weighted wellbeing readout. Values that are not yet exposed as HUD bars are
+ * still explicit inputs, so future systems can tune them without changing the
+ * crystal rules. */
+export function weightedEmotionalScore(needs: ProducerNeeds, extras: { inspiration: number; confidence: number; environment: number; sleep: number }, graph?: EmotionalGraphState): number {
+  const values = [needs.hunger, needs.energy, needs.hygiene, needs.social, needs.creativity, needs.love, extras.inspiration, extras.confidence, extras.environment, extras.sleep];
+  let score = values.reduce((sum, value) => sum + Math.max(0, Math.min(100, value)), 0) / values.length;
+  if (graph) score += (graph.hope === 'high' ? 8 : graph.hope === 'low' ? -8 : 0) + (graph.loneliness === 'high' ? -10 : graph.loneliness === 'low' ? 5 : 0) + (graph.burnout === 'high' ? -10 : 0) + (graph.love === 'high' ? 6 : 0) + (graph.addiction === 'high' ? -7 : 0);
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 const LEVEL_VALUE: Record<EmotionalGraphState[EmotionalVariable], number> = { low: 0, steady: 1, high: 2 };

@@ -76,9 +76,66 @@ export function playScribble() {
   }
 }
 
+/** Soft electric-piano chord for the two keyboard instruments. */
+export function playKeyboardChord() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  [261.63, 329.63, 392.0, 523.25].forEach((freq, index) => pluck(ac, freq, t + index * 0.035, 1.35, 'sine', 0.72, 4200));
+}
+
+/** Short, non-melodic modular blip used by the collaborator's ambient idle. */
+export function playModularPatch() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  [110, 146.8, 207.7].forEach((freq, index) => pluck(ac, freq * (0.98 + Math.random() * 0.05), t + index * 0.11, 0.7 + Math.random() * 0.5, 'sawtooth', 0.12, 900 + Math.random() * 1000));
+}
+
+/** Gentle looping rain ambience: filtered noise, faded in/out so it never snaps on. */
+let rainLoop: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+
+export function startRain() {
+  const ac = audio();
+  if (!ac || rainLoop) return;
+  const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * 2), ac.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * 0.6;
+  const src = ac.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  const highpass = ac.createBiquadFilter();
+  highpass.type = 'highpass';
+  highpass.frequency.value = 780;
+  const lowpass = ac.createBiquadFilter();
+  lowpass.type = 'lowpass';
+  lowpass.frequency.value = 5200;
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(0, ac.currentTime);
+  gain.gain.linearRampToValueAtTime(0.05, ac.currentTime + 1.4); // soft fade-in
+  src.connect(highpass);
+  highpass.connect(lowpass);
+  lowpass.connect(gain);
+  gain.connect(ac.destination);
+  src.start();
+  rainLoop = { src, gain };
+}
+
+export function stopRain() {
+  if (!rainLoop) return;
+  const ac = audio();
+  const { src, gain } = rainLoop;
+  rainLoop = null;
+  if (!ac) { try { src.stop(); } catch { /* already stopped */ } return; }
+  gain.gain.linearRampToValueAtTime(0, ac.currentTime + 0.9);
+  window.setTimeout(() => { try { src.stop(); } catch { /* already stopped */ } }, 1000);
+}
+
 /** Play the sound cue for an interacted object id, if it has one. */
 export function playInteractionSfx(id: string) {
   if (id === 'acousticGuitar') playAcousticStrum();
   else if (id === 'electricGuitar') playElectricStrum();
+  else if (id === 'portasound' || id === 'sk5') playKeyboardChord();
   else if (id === 'lyricNotebook') playScribble();
+  else if (id === 'modularSynths') playModularPatch();
 }
