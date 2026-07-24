@@ -43,10 +43,12 @@ export function GameShell() {
         event.preventDefault();
         const state = useGameStore.getState();
         if (state.prompt) return; // the prompt has its own buttons; Enter must not double-fire behind it
-        // The lobby has one purposeful exit: the elevator. Making Enter work here keeps the ride
-        // reachable even if the call button is off-screen or an overlay intercepts a pointer click.
-        if (state.activeLocationId === 'apartment-lobby' || state.activeLocationId === 'apartment-corridor') { state.callElevator(); return; }
         if (state.activeLocationId === 'elevator') return; // riding: no interactions until the doors open
+        // The lobby's only purposeful action is calling the elevator back up; in the hallway, Enter is
+        // the way back into the studio (the elevator there has its own button). Keeping Enter bound
+        // means neither exit can be stranded behind an off-screen prop or an overlay.
+        if (state.activeLocationId === 'apartment-lobby') { state.callElevator(); return; }
+        if (state.activeLocationId === 'apartment-hallway' || state.activeLocationId === 'apartment-corridor') { state.returnToStudio(); return; }
         // Enter toggles: if an interaction overlay is open, a second Enter closes it; otherwise interact.
         if (state.activeVideoId) { state.closeVideo(); return; }
         if (state.friendMenuOpen) { state.closeFriendMenu(); return; }

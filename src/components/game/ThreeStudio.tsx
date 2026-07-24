@@ -46,6 +46,11 @@ function EmotionalCrystal({ y }: { y: number }) {
   </group>;
 }
 
+const HALLWAY_CAM: [number, number, number] = [0, 6.4, 6.2];
+const HALLWAY_TARGET: [number, number, number] = [0, 1.4, -2.4];
+const LOBBY_CAM: [number, number, number] = [0, 8.0, 8.6];
+const LOBBY_TARGET: [number, number, number] = [0, 1.5, -0.8];
+
 const CLOTH = '#161a24';
 const CLOTH_DARK = '#0e111a';
 
@@ -216,7 +221,9 @@ function WalkingFigure() {
   return <group ref={figure}>
     <WalkLeg legRef={legL} x={-0.15} />
     <WalkLeg legRef={legR} x={0.15} />
-    <group ref={bob}><UpperBody hipY={0.82} /></group>
+    {/* The smoking layer sits inside the bobbing group, so the upper-body animation blends over the
+        walk cycle: the legs keep striding while the cigarette turns and bobs with the body. */}
+    <group ref={bob}><UpperBody hipY={0.82} /><SmokingEffect hipY={0.82} /></group>
   </group>;
 }
 
@@ -229,6 +236,17 @@ type Puff = { x: number; y: number; z: number; vx: number; vy: number; vz: numbe
 function SmokePuffs({ emitter }: { emitter: (emit: (x: number, y: number, z: number, strength: number) => void, delta: number) => void }) {
   const group = useRef<THREE.Group>(null);
   const puffs = useMemo<Puff[]>(() => Array.from({ length: 34 }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, span: 1, scale: 1 })), []);
+  // Pin this group's world matrix to the identity so its children live in WORLD space even though the
+  // component is mounted inside the (turning, bobbing) body rig. Puffs then hang in the air where they
+  // were exhaled and the producer walks out of them, instead of the cloud swinging around on every turn.
+  useEffect(() => {
+    const g = group.current;
+    if (!g) return;
+    g.matrixAutoUpdate = false;
+    g.matrixWorldAutoUpdate = false;
+    g.matrix.identity();
+    g.matrixWorld.identity();
+  }, []);
   useFrame((_, delta) => {
     const meshes = group.current?.children;
     if (!meshes) return;
@@ -238,9 +256,9 @@ function SmokePuffs({ emitter }: { emitter: (emit: (x: number, y: number, z: num
       free.x = x + (Math.random() - 0.5) * 0.05;
       free.y = y;
       free.z = z + (Math.random() - 0.5) * 0.05;
-      free.vx = (Math.random() - 0.5) * 0.13 * strength;
+      free.vx = (Math.random() - 0.5) * 0.15 * strength;
       free.vy = 0.16 + Math.random() * 0.14 * strength;
-      free.vz = -(0.04 + Math.random() * 0.12) * strength; // drifts away from the face
+      free.vz = (Math.random() - 0.5) * 0.15 * strength;
       free.span = (1.6 + Math.random() * 1.4) * (0.7 + strength * 0.5);
       free.life = free.span;
       free.scale = (0.045 + Math.random() * 0.04) * (0.8 + strength * 0.9);
@@ -282,24 +300,39 @@ const SMOKE_REST = 1.3; // held at the side afterwards
 const SMOKE_CYCLE = SMOKE_RAISE + SMOKE_INHALE + SMOKE_HOLD + SMOKE_LOWER + SMOKE_REST;
 
 /**
- * Cinematic smoking loop: raise the cigarette to the mouth, hold briefly while inhaling (the tip glows),
- * then lower the hand while the exhale streams from the mouth. The lit tip smoulders the whole time.
+ * Upper-body smoking layer. This is deliberately just the arm and the smoke — it is mounted *inside*
+ * the body rig (the bobbing/turning group of the walking figure, or the seated torso) so it blends
+ * over whatever the lower body is doing: the producer can walk, run and steer while smoking, and the
+ * cigarette turns and bobs with them. One drag plays through in the ~5s the timer lasts, then the
+ * cigarette scales away and the body returns to plain locomotion.
  */
 function SmokingEffect({ hipY }: { hipY: number }) {
   const smoking = useGameStore((state) => state.smokingMinutes > 0);
+  const [mounted, setMounted] = useState(false);
   const arm = useRef<THREE.Group>(null);
+  const mouth = useRef<THREE.Object3D>(null);
   const ember = useRef<THREE.Mesh>(null);
   const emberLight = useRef<THREE.PointLight>(null);
   const phase = useRef(0); // one pass through the cycle, starting from the hand at the side
   const exhale = useRef(0);
   const tipTrickle = useRef(0);
+  const fade = useRef(0); // eases the cigarette in when lit and out when it is done
+  const scratch = useMemo(() => new THREE.Vector3(), []);
   const smoothing = (from: number, to: number, t: number) => from + (to - from) * (t * t * (3 - 2 * t));
   const restPos: [number, number, number] = [0.34, hipY + 0.16, -0.16];
   const mouthPos: [number, number, number] = [0.13, hipY + 0.92, -0.24];
-  // Reset to the start of the drag each time a fresh cigarette is lit.
-  useEffect(() => { if (smoking) { phase.current = 0; exhale.current = 0; } }, [smoking]);
+  // Light up: restart the drag. Stub out: linger briefly so the fade-out can play before unmounting.
+  useEffect(() => {
+    if (smoking) { phase.current = 0; exhale.current = 0; setMounted(true); return; }
+    if (!mounted) return;
+    const timer = window.setTimeout(() => setMounted(false), 600);
+    return () => window.clearTimeout(timer);
+  }, [smoking, mounted]);
   useFrame((_, delta) => {
-    if (!smoking || !arm.current) return;
+    if (!arm.current) return;
+    fade.current += ((smoking ? 1 : 0) - fade.current) * Math.min(1, delta * 7);
+    arm.current.scale.setScalar(Math.max(0.001, fade.current));
+    if (!smoking) return;
     // Clamps rather than wraps: the animation plays through once and finishes with the hand lowered.
     phase.current = Math.min(phase.current + delta, SMOKE_CYCLE);
     const t = phase.current;
@@ -329,18 +362,21 @@ function SmokingEffect({ hipY }: { hipY: number }) {
     exhale.current = t >= holdEnd && t < holdEnd + 1.0 ? exhale.current + delta : 0;
     tipTrickle.current += delta;
   });
-  if (!smoking) return null;
+  if (!mounted) return null;
+  // Emission points are resolved in world space, because the puff pool is world-anchored.
   const emitter = (emit: (x: number, y: number, z: number, strength: number) => void, delta: number) => {
-    const hand = arm.current;
-    if (!hand) return;
-    // A thin wisp keeps rising off the lit tip while the cigarette is simply held.
+    if (!arm.current || !smoking) return;
+    // A thin wisp keeps rising off the lit tip the whole time the cigarette is in hand.
     if (tipTrickle.current > 0.22) {
       tipTrickle.current = 0;
-      emit(hand.position.x, hand.position.y + 0.16, hand.position.z, 0.35);
+      scratch.set(0, 0.15, 0);
+      arm.current.localToWorld(scratch);
+      emit(scratch.x, scratch.y, scratch.z, 0.35);
     }
-    // Exhale: a slower, wider cloud leaving the mouth.
-    if (exhale.current > 0 && exhale.current < 1.0 && Math.random() < delta * 26) {
-      emit(0.06, hipY + 0.9, -0.3, 1);
+    // Exhale: a slower, wider cloud leaving the mouth after each inhale.
+    if (exhale.current > 0 && exhale.current < 1.0 && mouth.current && Math.random() < delta * 26) {
+      mouth.current.getWorldPosition(scratch);
+      emit(scratch.x, scratch.y, scratch.z, 1);
     }
   };
   return <group>
@@ -352,6 +388,8 @@ function SmokingEffect({ hipY }: { hipY: number }) {
       <mesh position={[0, 0.125, 0]}><cylinderGeometry args={[0.0182, 0.0182, 0.02, 10]} /><meshStandardMaterial color="#4a3b34" roughness={1} /></mesh>
       <pointLight ref={emberLight} position={[0, 0.15, 0]} color="#ff5a26" intensity={0.35} distance={0.7} />
     </group>
+    {/* Invisible anchor marking the mouth, so the exhale starts from the right place in world space. */}
+    <object3D ref={mouth} position={[0.06, hipY + 0.9, -0.3]} />
     <SmokePuffs emitter={emitter} />
   </group>;
 }
@@ -420,7 +458,6 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   }
   return <group position={[x, 0, z]}>
     <WalkingFigure />
-    <SmokingEffect hipY={0.82} />
     {crystal && <EmotionalCrystal y={2.72} />}
     <ThoughtBubble y={3.12} />
   </group>;
@@ -668,7 +705,9 @@ function Room() {
   // Sunrise light arrives warm and turns neutral as the morning fills in.
   const sunColor = new THREE.Color('#9bb9ff').lerp(new THREE.Color('#ffb877'), golden).lerp(new THREE.Color('#fff1d0'), Math.max(0, daylight - golden)).getStyle();
   if (activeLocationId === 'elevator') return <ElevatorCar />;
-  if (activeLocationId === 'apartment-lobby' || activeLocationId === 'apartment-corridor') return <Lobby />;
+  if (activeLocationId === 'apartment-lobby') return <Lobby />;
+  // 'apartment-corridor' is the pre-hallway id kept so older saves still land somewhere sensible.
+  if (activeLocationId === 'apartment-hallway' || activeLocationId === 'apartment-corridor') return <Hallway />;
   return <>
     <color attach="background" args={[sky]} /><fog attach="fog" args={[sky, 9 * ROOM_SCALE, 24 * ROOM_SCALE]} />
     <ambientLight intensity={0.55 + outdoor * 0.7} color={new THREE.Color('#7183ad').lerp(new THREE.Color('#e8a877'), golden).lerp(new THREE.Color('#b8dcf0'), Math.max(0, daylight - golden)).getStyle()} /><directionalLight castShadow position={[3, 8, 4]} intensity={1.5 + outdoor * 2.2} color={sunColor} shadow-mapSize={[1024, 1024]} />
@@ -702,6 +741,19 @@ function ElevatorPanel({ onPress, label }: { onPress?: () => void; label?: strin
       <button type="button" onClick={onPress} className="pointer-events-auto rounded border border-paper/40 bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap hover:bg-ember/50">{label}</button>
     </Html>}
   </group>;
+}
+
+/**
+ * Camera for the hallway and lobby. These rooms are a different size and shape from the studio, so
+ * they get their own framing instead of inheriting the studio's orbit distances (which sit the camera
+ * outside the walls). Still orbitable, just bounded to this room.
+ */
+function PlaceRig({ from, target, min, max }: { from: [number, number, number]; target: [number, number, number]; min: number; max: number }) {
+  const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const { camera } = useThree();
+  useEffect(() => { camera.position.set(...from); }, [camera, from]);
+  useFrame(() => { controls.current?.update(); });
+  return <OrbitControls ref={controls} makeDefault target={target} enablePan={false} minDistance={min} maxDistance={max} minPolarAngle={Math.PI * 0.16} maxPolarAngle={Math.PI * 0.46} enableDamping dampingFactor={0.12} />;
 }
 
 /** Camera fixed inside the car, close enough to read the interior and the doors. */
@@ -773,8 +825,13 @@ function ElevatorCar() {
   </>;
 }
 
-/** The apartment lobby: where the elevator lets out, and where it can be called again. */
-function Lobby() {
+/**
+ * The studio-floor hallway. This is the original corridor, restored: the studio's own door on the
+ * left, the elevator on the right. It is the landing between the room and the rest of the building —
+ * Studio door → Hallway → Elevator → Lobby.
+ */
+function Hallway() {
+  const returnToStudio = useGameStore((state) => state.returnToStudio);
   const callElevator = useGameStore((state) => state.callElevator);
   return <>
     <color attach="background" args={['#292018']} /><ambientLight intensity={0.72} color="#d58b52" /><pointLight position={[-1.8, 3.5, 1]} color="#f0a35b" intensity={10} distance={10} /><pointLight position={[2.8, 4.4, -2.5]} color="#ffd08a" intensity={7} distance={8} />
@@ -782,18 +839,101 @@ function Lobby() {
     <mesh position={[0, 3, -4.5]}><boxGeometry args={[9, 6, 0.2]} /><meshStandardMaterial color="#50515a" /></mesh>
     <mesh position={[-4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" /></mesh>
     <mesh position={[4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" /></mesh>
-    {/* Lobby seating and a potted plant so the floor reads as a real ground level, not a corridor stub. */}
-    <mesh position={[-3.1, 0.42, 1.6]} castShadow><boxGeometry args={[1.6, 0.28, 0.7]} /><meshStandardMaterial color="#6b4b2c" /></mesh>
-    <mesh position={[3.2, 0.36, 0.4]} castShadow><cylinderGeometry args={[0.34, 0.28, 0.6, 12]} /><meshStandardMaterial color="#8a5a3a" /></mesh>
-    <mesh position={[3.2, 1.0, 0.4]}><sphereGeometry args={[0.5, 12, 10]} /><meshStandardMaterial color="#3f6b4a" roughness={0.9} /></mesh>
-    {/* The elevator: the one way back up to the studio. */}
-    <group position={[1.45, 0, -4.25]}>
-      <mesh position={[0, 1.6, 0]} castShadow><boxGeometry args={[2.8, 3.2, 0.2]} /><meshStandardMaterial color="#20262f" metalness={0.5} /></mesh>
-      <mesh position={[-0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#78818c" metalness={0.75} /></mesh>
-      <mesh position={[0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#78818c" metalness={0.75} /></mesh>
-      <group position={[1.72, 1.35, 0.15]}><ElevatorPanel onPress={callElevator} label="ELEVATOR · ENTER" /></group>
+    {/* Worn runner down the middle of the corridor. */}
+    <mesh position={[0, 0.01, 0.5]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[2.6, 10]} /><meshStandardMaterial color="#6d4740" roughness={0.95} /></mesh>
+    {/* Studio door on the left: distinct from the elevator, and always returns to the same room. */}
+    <group position={[-2.4, 0, -4.25]}>
+      <mesh position={[0, 1.4, 0]} castShadow onClick={(event) => { event.stopPropagation(); returnToStudio(); }}><boxGeometry args={[1.5, 2.8, 0.18]} /><meshStandardMaterial color="#b73545" /></mesh>
+      <mesh position={[0.5, 1.32, 0.14]}><sphereGeometry args={[0.06, 10, 10]} /><meshStandardMaterial color="#d6a447" metalness={0.6} /></mesh>
+      <Html center position={[0, 3.0, 0]} distanceFactor={9}>
+        <button type="button" onClick={returnToStudio} className="pointer-events-auto rounded border border-paper/40 bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap hover:bg-ember/50">STUDIO · ENTER</button>
+      </Html>
     </group>
-    <Player /><CameraRig />
+    {/* Elevator on the right: down to the ground-floor lobby. */}
+    <group position={[1.45, 0, -4.25]}>
+      <mesh position={[0, 1.6, 0]} castShadow><boxGeometry args={[2.8, 3.2, 0.2]} /><meshStandardMaterial color="#20262f" metalness={0.35} roughness={0.5} /></mesh>
+      <mesh position={[-0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
+      <mesh position={[0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
+      <group position={[1.72, 1.35, 0.15]}><ElevatorPanel onPress={callElevator} label="ELEVATOR · DOWN" /></group>
+    </group>
+    <Player /><PlaceRig from={HALLWAY_CAM} target={HALLWAY_TARGET} min={7} max={16} />
+  </>;
+}
+
+/**
+ * The ground-floor lobby of an older apartment block: terrazzo floor, a wall of brass mailboxes, a
+ * radiator, a worn bench and a potted palm, with the street doors glowing at the far end. The
+ * elevator is only how you get here — the lobby is its own space to walk around.
+ */
+function Lobby() {
+  const callElevator = useGameStore((state) => state.callElevator);
+  return <>
+    <color attach="background" args={['#241b14']} />
+    <ambientLight intensity={0.66} color="#d8955c" />
+    <pointLight position={[-2.2, 3.6, 1.5]} color="#f0a35b" intensity={11} distance={12} />
+    <pointLight position={[2.6, 4.2, -2.0]} color="#ffd08a" intensity={7} distance={9} />
+    {/* Daylight spilling in from the street doors behind the camera-facing wall. */}
+    <pointLight position={[0, 2.4, 5.4]} color="#cfe0f0" intensity={9} distance={12} />
+    {/* Terrazzo floor: a warm slab with a scatter of paler chips. */}
+    <mesh receiveShadow position={[0, -0.08, 0]}><boxGeometry args={[11, 0.16, 14]} /><meshStandardMaterial color="#9b8f7d" roughness={0.45} /></mesh>
+    {Array.from({ length: 7 }).map((_, r) => Array.from({ length: 5 }).map((__, c) => (
+      <mesh key={`f${r}-${c}`} position={[-4.2 + c * 2.1, 0.005, -5.4 + r * 1.8]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[2.0, 1.7]} /><meshStandardMaterial color={(r + c) % 2 ? '#8e836f' : '#a89b86'} roughness={0.42} />
+      </mesh>
+    )))}
+    {/* Walls with a dark green dado and a cream upper, the way these buildings were painted. */}
+    <mesh position={[0, 3.2, -5.2]}><boxGeometry args={[11, 6.4, 0.2]} /><meshStandardMaterial color="#cbbda4" roughness={0.9} /></mesh>
+    <mesh position={[0, 0.95, -5.05]}><boxGeometry args={[11, 1.9, 0.08]} /><meshStandardMaterial color="#3f5449" roughness={0.85} /></mesh>
+    <mesh position={[-5.4, 3.2, 0]}><boxGeometry args={[0.2, 6.4, 14]} /><meshStandardMaterial color="#c2b499" roughness={0.9} /></mesh>
+    <mesh position={[-5.25, 0.95, 0]}><boxGeometry args={[0.08, 1.9, 14]} /><meshStandardMaterial color="#3f5449" roughness={0.85} /></mesh>
+    <mesh position={[5.4, 3.2, 0]}><boxGeometry args={[0.2, 6.4, 14]} /><meshStandardMaterial color="#c2b499" roughness={0.9} /></mesh>
+    <mesh position={[5.25, 0.95, 0]}><boxGeometry args={[0.08, 1.9, 14]} /><meshStandardMaterial color="#3f5449" roughness={0.85} /></mesh>
+    {/* Street doors at the far end: dark frames with panes lit from outside. */}
+    <group position={[0, 0, 6.6]}>
+      <mesh position={[0, 2.3, 0]}><boxGeometry args={[4.4, 4.6, 0.2]} /><meshStandardMaterial color="#33291f" roughness={0.7} /></mesh>
+      {[-1.0, 1.0].map((dx) => (
+        <mesh key={dx} position={[dx, 1.9, -0.12]}><planeGeometry args={[1.7, 3.4]} /><meshStandardMaterial color="#a9c4da" emissive="#8fb3d0" emissiveIntensity={0.75} toneMapped={false} /></mesh>
+      ))}
+      <mesh position={[0, 1.9, -0.14]}><boxGeometry args={[0.16, 3.5, 0.06]} /><meshStandardMaterial color="#33291f" /></mesh>
+      {[-0.28, 0.28].map((dx) => <mesh key={`h${dx}`} position={[dx, 1.5, -0.2]}><cylinderGeometry args={[0.035, 0.035, 0.7, 10]} /><meshStandardMaterial color="#c79a4e" metalness={0.4} roughness={0.35} /></mesh>)}
+    </group>
+    {/* Wall of brass mailboxes — the signature of an old apartment lobby. */}
+    <group position={[-5.05, 0, 0.6]} rotation={[0, Math.PI / 2, 0]}>
+      <mesh position={[0, 1.65, 0]}><boxGeometry args={[4.2, 1.9, 0.22]} /><meshStandardMaterial color="#6b5636" roughness={0.55} /></mesh>
+      {Array.from({ length: 4 }).map((_, r) => Array.from({ length: 8 }).map((__, c) => (
+        <mesh key={`m${r}-${c}`} position={[-1.85 + c * 0.53, 2.32 - r * 0.44, 0.13]}>
+          <boxGeometry args={[0.46, 0.37, 0.05]} /><meshStandardMaterial color={(r * 8 + c) % 5 === 0 ? '#b8933f' : '#a8873c'} metalness={0.35} roughness={0.42} />
+        </mesh>
+      )))}
+    </group>
+    {/* Cast-iron radiator, a worn bench and a potted palm. */}
+    <group position={[4.9, 0, 1.8]}>
+      {Array.from({ length: 9 }).map((_, i) => <mesh key={i} position={[0, 0.55, -1.0 + i * 0.25]}><boxGeometry args={[0.22, 1.0, 0.16]} /><meshStandardMaterial color="#b8ac97" roughness={0.7} /></mesh>)}
+    </group>
+    <group position={[-3.4, 0, 2.9]}>
+      <mesh position={[0, 0.46, 0]} castShadow><boxGeometry args={[2.4, 0.16, 0.7]} /><meshStandardMaterial color="#6b4b2c" roughness={0.8} /></mesh>
+      {[-1.0, 1.0].map((lx) => <mesh key={lx} position={[lx, 0.19, 0]}><boxGeometry args={[0.16, 0.38, 0.6]} /><meshStandardMaterial color="#4d361f" roughness={0.85} /></mesh>)}
+      <mesh position={[0, 0.86, -0.28]}><boxGeometry args={[2.4, 0.66, 0.12]} /><meshStandardMaterial color="#6b4b2c" roughness={0.8} /></mesh>
+    </group>
+    <group position={[3.4, 0, 4.0]}>
+      <mesh position={[0, 0.36, 0]} castShadow><cylinderGeometry args={[0.42, 0.34, 0.72, 14]} /><meshStandardMaterial color="#9a5a3a" roughness={0.8} /></mesh>
+      {[0, 1.2, 2.4, 3.6, 4.8].map((a, i) => (
+        <mesh key={a} position={[Math.cos(a) * 0.36, 1.1 + (i % 2) * 0.22, Math.sin(a) * 0.36]} rotation={[Math.cos(a) * 0.5, a, Math.sin(a) * 0.5]}>
+          <boxGeometry args={[0.12, 1.1, 0.5]} /><meshStandardMaterial color="#3f6b4a" roughness={0.9} />
+        </mesh>
+      ))}
+    </group>
+    {/* The elevator: the one way back up to the studio floor. */}
+    <group position={[1.6, 0, -5.0]}>
+      <mesh position={[0, 1.75, 0]} castShadow><boxGeometry args={[3.0, 3.5, 0.24]} /><meshStandardMaterial color="#4a3a28" roughness={0.6} /></mesh>
+      <mesh position={[-0.76, 1.68, 0.14]}><boxGeometry args={[1.28, 2.9, 0.05]} /><meshStandardMaterial color="#9a8a6a" metalness={0.32} roughness={0.45} /></mesh>
+      <mesh position={[0.76, 1.68, 0.14]}><boxGeometry args={[1.28, 2.9, 0.05]} /><meshStandardMaterial color="#9a8a6a" metalness={0.32} roughness={0.45} /></mesh>
+      {/* Floor-indicator dial above the doors. */}
+      <mesh position={[0, 3.34, 0.16]}><boxGeometry args={[0.9, 0.34, 0.06]} /><meshStandardMaterial color="#2b2118" /></mesh>
+      <mesh position={[0, 3.34, 0.2]}><planeGeometry args={[0.74, 0.2]} /><meshStandardMaterial color="#ffb457" emissive="#ff8c22" emissiveIntensity={1.3} toneMapped={false} /></mesh>
+      <group position={[1.85, 1.4, 0.16]}><ElevatorPanel onPress={callElevator} label="ELEVATOR · UP" /></group>
+    </group>
+    <Player /><PlaceRig from={LOBBY_CAM} target={LOBBY_TARGET} min={8} max={19} />
   </>;
 }
 

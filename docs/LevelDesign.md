@@ -26,15 +26,24 @@ Objects live in a logical 2D map (roughly `1280 × 720`) as `StudioObject { id, 
 
 Two windows now light the room: the main one on the back wall, and `window2` mounted flat against the **right wall on the bed side** (`rotationY: -π/2`). Both render the same `WindowUnit`, so both read the identical day-cycle and weather state — sunrise, rain and hail appear in both at once, and any future weather is inherited automatically. `WindowUnit` takes a `width`, and everything drawn inside the opening (stars, city lights, rain) scales with it so a narrower window never overflows its frame.
 
-## 3a. The elevator and the lobby
+## 3a. Floors: studio → hallway → elevator → lobby
 
-The studio's `entrance` object is the **elevator call button**. Using it raises a *Leave the studio?* Yes/No confirmation; choosing Yes moves the player into the `elevator` location for a `ELEVATOR_RIDE_MS` (5s) ride: the doors slide shut over the first second, the car travels, a chime sounds one second before arrival, and the doors part again as `tick` lands the player on the destination floor. The lobby's call button rides back the other way, indefinitely.
+The building is four connected spaces in a line:
 
-The car interior is deliberately **cosy and dated, not modern**: warm orange light, marble tile, brushed-metal walls with a wood dado rail and brass handrail, a mirror on the wall the rider faces, a soft ceiling light panel and a brass button panel. It has its own fixed camera (`ElevatorRig`) because the studio's orbit distances would sit outside the car.
+```
+Studio  ──door──►  Hallway  ──elevator──►  Lobby (ground floor)
+```
 
-Note the scene has no environment map, so **high `metalness` renders black** under punctual lights — elevator surfaces keep metalness ≈ 0.25–0.35 and let the diffuse colour carry.
+- **Studio door.** The studio's `entrance` object is the door out. Using it raises *Leave the studio?* Yes/No; Yes drops the player into the **hallway** (`apartment-hallway`), not straight into a ride.
+- **Hallway** (`Hallway`) — the restored studio-floor corridor: the red studio door on the left (returns to the studio, `returnToStudio`) and the elevator on the right (`ELEVATOR · DOWN`). This is the original corridor scene, kept as its own landing.
+- **Elevator** (`elevator`, rendered by `ElevatorCar`) — pure transport, never a destination you explore. Calling it raises *Take the elevator?* Yes/No; Yes plays a `ELEVATOR_RIDE_MS` (5s) ride: doors shut over the first second, the car travels, a chime sounds one second before arrival, and the doors part as `tick` lands the player on the other floor. The car interior is deliberately **cosy and dated**: warm orange light, marble tile, brushed-metal walls with a wood dado rail and brass handrail, a mirror on the wall the rider faces, a ceiling light panel and a button panel. It has its own fixed camera (`ElevatorRig`).
+- **Lobby** (`apartment-lobby`, rendered by `Lobby`) — the ground floor of an **older apartment building**: terrazzo checkerboard floor, cream walls over a dark-green dado, a wall of **brass mailboxes**, a cast-iron radiator, a worn bench, a potted palm, and street doors glowing at the far end. It is a separate explorable space, **not** replaced by the elevator; the elevator here (`ELEVATOR · UP`) is only the ride back up. **Riding down always arrives in the lobby.**
 
-**Going outside is a real choice:** returning to the studio applies a one-time `stress −9`, `energy −4`, `social +3`.
+`Hallway` and `Lobby` are corridor-scale, so they use `PlaceRig` (their own orbit framing) instead of the much larger studio's camera distances. The `apartment-corridor` id from the previous build still routes to the hallway so older saves land somewhere sensible.
+
+Note the scenes have no environment map, so **high `metalness` renders black** under punctual lights — elevator and lobby metals keep metalness ≈ 0.25–0.35 and let the diffuse colour carry.
+
+**Going outside is a real choice:** the going-outside buff (`stress −9`, `energy −4`, `social +3`) is gated on actually reaching the lobby (`visitedLobby`) and lands once, on the next return into the studio.
 
 ## 4. Movement bounds
 

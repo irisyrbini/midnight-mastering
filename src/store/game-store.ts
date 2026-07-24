@@ -58,6 +58,8 @@ type GameState = GameSnapshot & {
   /** Elevator ride in progress: where it is heading and when it gets there (`elapsedMs`). */
   elevatorTo: string | null;
   elevatorArrivesAt: number;
+  /** Set once the producer reaches the ground-floor lobby; spends on the next return to the studio. */
+  visitedLobby: boolean;
   /** Ambient thought bubble above the producer. `n` bumps so the renderer can restart its fade. */
   thought: Thought | null;
   thoughtCooldown: number;
@@ -192,8 +194,18 @@ const PHONE_PROMPT: Prompt = {
     { label: 'Put it down', kind: 'dismiss' },
   ],
 };
-const ELEVATOR_PROMPT: Prompt = {
+/** The studio door: it opens onto the hallway, not straight into the elevator. */
+const LEAVE_STUDIO_PROMPT: Prompt = {
   title: 'Leave the studio?',
+  choices: [
+    { label: 'Yes', kind: 'leave-room' },
+    { label: 'No', kind: 'dismiss' },
+  ],
+};
+
+/** The elevator call button, shown on whichever floor the producer is standing on. */
+const ELEVATOR_PROMPT: Prompt = {
+  title: 'Take the elevator?',
   choices: [
     { label: 'Yes', kind: 'elevator-ride' },
     { label: 'No', kind: 'dismiss' },
@@ -285,6 +297,7 @@ const initialSession = () => ({
   npc2PauseUntil: 0,
   elevatorTo: null as string | null,
   elevatorArrivesAt: 0,
+  visitedLobby: false,
   thought: null as Thought | null,
   thoughtCooldown: 40,
   selectedObjectId: undefined as string | undefined,
@@ -338,7 +351,7 @@ export const useGameStore = create<GameState>((set) => ({
     // Safety net: a save written inside the car with no ride in flight would strand the player in a
     // room with no exit, so put them back in the studio instead.
     if (next.activeLocationId === 'elevator' && !next.elevatorTo) {
-      return { ...snapshot, activeLocationId: 'apartment-studio', playerPosition: { ...ENTRANCE_POSITION }, moveTarget: null };
+      return { ...snapshot, activeLocationId: 'apartment-hallway', playerPosition: { x: 640, y: 620 }, moveTarget: null };
     }
     return snapshot;
   }),
@@ -383,7 +396,16 @@ export const useGameStore = create<GameState>((set) => ({
   closeVideo: () => set({ activeVideoId: undefined }),
   openFriendMenu: () => set((state) => state.visitorActive && state.visitorPhase === 'staying' ? { friendMenuOpen: true } : state),
   closeFriendMenu: () => set({ friendMenuOpen: false }),
-  returnToStudio: () => set({ activeLocationId: 'apartment-studio', playerPosition: { x: 640, y: 510 }, moveTarget: null, selectedObjectId: undefined }),
+  returnToStudio: () => set((state) => ({
+    activeLocationId: 'apartment-studio',
+    playerPosition: { ...ENTRANCE_POSITION },
+    moveTarget: null,
+    selectedObjectId: undefined,
+    // Going all the way down and back is a real trip: it costs a little energy and takes the edge off.
+    ...(state.visitedLobby
+      ? { visitedLobby: false, needs: applyNeedChange(state.needs, { energy: -4, social: 3 }), stress: clamp(state.stress - 9) }
+      : {}),
+  })),
   /** The lobby's call button. Raises the same confirmation the studio's button does, so the ride is symmetric. */
   callElevator: () => set((state) => (state.elevatorTo || state.phase !== 'playing' ? state : { prompt: ELEVATOR_PROMPT })),
   doFriendActivity: (kind) => set((state) => {
@@ -439,17 +461,16 @@ export const useGameStore = create<GameState>((set) => ({
     const elapsedMs = state.elapsedMs + deltaMs;
     const elevatorArrived = state.elevatorTo !== null && elapsedMs >= state.elevatorArrivesAt;
     // Stepping out and coming back costs a little energy and takes the edge off the stress.
-    const outsideBuff = elevatorArrived && state.elevatorTo === 'apartment-studio';
-    if (outsideBuff) needs = applyNeedChange(needs, { energy: -4, social: 3 });
-    const outsideStressRelief = outsideBuff ? 9 : 0;
     const elevatorFrame = elevatorArrived
       ? {
         activeLocationId: state.elevatorTo as string,
         elevatorTo: null,
         elevatorArrivesAt: 0,
-        playerPosition: state.elevatorTo === 'apartment-studio' ? { ...ENTRANCE_POSITION } : { x: 640, y: 620 },
+        playerPosition: { x: 640, y: 620 },
         moveTarget: null as MoveTarget,
         selectedObjectId: undefined,
+        // Actually reaching the ground floor is what counts as "going outside".
+        ...(state.elevatorTo === 'apartment-lobby' ? { visitedLobby: true } : {}),
       }
       : {};
     const thoughtFrame = nextThought(state, gameMinutes);
@@ -457,7 +478,7 @@ export const useGameStore = create<GameState>((set) => ({
       elapsedMs,
       needs,
       clock: { day: state.clock.day + dayCount, minuteOfDay: totalMinutes % 720 },
-      stress: clamp(state.stress + stressDrift * gameMinutes - outsideStressRelief),
+      stress: clamp(state.stress + stressDrift * gameMinutes),
       wellnessMinutes: wellnessResolve ? 0 : wellnessAccum,
       weather,
       weatherMinutes: weatherChanged ? 0 : weatherMinutes,
@@ -553,7 +574,7 @@ export const useGameStore = create<GameState>((set) => ({
         stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     if (interaction.action === 'entrance') {
-      return { entranceOpen: true, prompt: ELEVATOR_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+      return { entranceOpen: true, prompt: LEAVE_STUDIO_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     // Any other interaction stands the producer up. The entrance swings its door open.
     const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
@@ -565,7 +586,10 @@ export const useGameStore = create<GameState>((set) => ({
     if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
     const updatedNeeds = applyNeedChange(state.needs, interaction.changes);
     const updatedScore = weightedEmotionalScore(updatedNeeds, { inspiration: inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
-    return { needs: updatedNeeds, activeVideoId: interaction.id, guitarNotesMinutes, smokingMinutes: interaction.id === 'cigarettes' ? 10 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+    // Lighting a cigarette must not raise the inspect card: it covers the room, and the whole point is
+    // to keep walking while the smoking animation plays out.
+    const isSmoke = interaction.id === 'cigarettes';
+    return { needs: updatedNeeds, activeVideoId: isSmoke ? undefined : interaction.id, guitarNotesMinutes, smokingMinutes: isSmoke ? 10 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
   }),
   dismissPrompt: () => set({ prompt: null }),
   choose: (kind) => set((state) => {
@@ -584,9 +608,14 @@ export const useGameStore = create<GameState>((set) => ({
     if (kind === 'doom-scroll') {
       return { prompt: null, lyingDown: true, scrolling: true, seated: false, playerPosition: LIE_POSITION, moveTarget: null, needs: applyNeedChange(state.needs, { social: -8 }), stress: clamp(state.stress + 6), lastInteraction: interactionById.doomscroll ?? state.lastInteraction };
     }
+    if (kind === 'leave-room') {
+      // Out through the studio door into the hallway — the elevator is a separate step from there.
+      return { prompt: null, activeLocationId: 'apartment-hallway', playerPosition: { x: 640, y: 620 }, moveTarget: null, entranceOpen: false, seated: false, lyingDown: false, selectedObjectId: undefined };
+    }
     if (kind === 'elevator-ride') {
       // Step inside; the ride itself plays out in `tick`, which lands the producer on the other floor.
-      const destination = state.activeLocationId === 'apartment-studio' ? 'apartment-lobby' : 'apartment-studio';
+      // The elevator only ever connects the studio floor's hallway with the ground-floor lobby.
+      const destination = state.activeLocationId === 'apartment-lobby' ? 'apartment-hallway' : 'apartment-lobby';
       return {
         prompt: null,
         activeLocationId: 'elevator',
