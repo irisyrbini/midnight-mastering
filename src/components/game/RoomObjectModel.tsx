@@ -198,22 +198,33 @@ function RainCurtain({ hail }: { hail: boolean }) {
       const drop = drops[i];
       drop.y -= drop.speed * delta;
       if (drop.y < -1.1) { drop.y = 1.1; drop.x = (Math.random() - 0.5) * 3.3; } // recycle at the top
-      meshes[i].position.set(drop.x, drop.y, 0.07);
+      meshes[i].position.set(drop.x, drop.y, -0.005);
     }
   });
   return <group ref={group}>
-    {drops.map((drop, index) => <mesh key={index} position={[drop.x, drop.y, 0.07]}>
+    {drops.map((drop, index) => <mesh key={index} position={[drop.x, drop.y, -0.005]}>
       <boxGeometry args={[hail ? 0.04 : 0.018, drop.length, 0.01]} />
       <meshBasicMaterial color={hail ? '#eaf6ff' : '#a6d4f7'} transparent opacity={hail ? 0.85 : 0.5} />
     </mesh>)}
   </group>;
 }
 
-function WindowUnit({ width = 3.8 }: { width?: number }) {
+/**
+ * A window onto the shared outdoor world. Both windows call this, driven by the same `dayCycle` +
+ * `weather`, so they always show the exact same sky, time and weather — the second window is just
+ * another viewpoint, not a separate environment.
+ *
+ * `celestial` decides whether this window draws the sun/moon disc. Only ONE window (the main one) does,
+ * so there is never a second sun. Every disc and layer is recessed **behind the front frame face**
+ * (all z ≤ 0), so the sun/moon can never clip through the glass into the room — sunlight enters, the
+ * sun itself stays outside.
+ */
+function WindowUnit({ width = 3.8, celestial = true }: { width?: number; celestial?: boolean }) {
   const open = useGameStore((state) => state.windowOpen);
   const minute = useGameStore((state) => Math.floor(state.clock.minuteOfDay));
   const weather = useGameStore((state) => state.weather);
   const pane = useRef<THREE.Group>(null);
+  const clouds = useRef<THREE.Group>(null);
   const { daylight, golden, sunProgress } = dayCycle(minute);
   const wet = weather === 'rain' || weather === 'hail';
   // Night → day, warmed through the golden hour, then dulled and darkened while it rains.
@@ -222,20 +233,31 @@ function WindowUnit({ width = 3.8 }: { width?: number }) {
     .lerp(new THREE.Color('#e79a54'), golden * 0.5)
     .lerp(new THREE.Color(wet ? '#2b3d4f' : '#0b1426'), weather === 'clear' ? 0 : wet ? 0.45 : 0.32)
     .getStyle();
-  useFrame(() => { if (pane.current) pane.current.rotation.x += ((open ? -0.5 : 0) - pane.current.rotation.x) * 0.14; });
+  useFrame((_, delta) => {
+    if (pane.current) pane.current.rotation.x += ((open ? -0.5 : 0) - pane.current.rotation.x) * 0.14;
+    if (clouds.current) { clouds.current.position.x = ((clouds.current.position.x + delta * 0.08 + 2) % 4) - 2; } // slow drift, wrapped
+  });
   return <group position={[0, 2.2, 0]}>
     <mesh><boxGeometry args={[width, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
-    <mesh position={[0, 0, 0.05]}><planeGeometry args={[width - 0.3, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
-    {/* The sun clears the horizon from 4:30 AM and climbs; it is deepest orange through the golden hour. */}
-    {daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, 0.12]}><sphereGeometry args={[0.16 + daylight * 0.1, 16, 12]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} /></mesh>}
+    {/* Sky backdrop recessed to the back of the frame opening. */}
+    <mesh position={[0, 0, -0.05]}><planeGeometry args={[width - 0.3, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
+    {/* Everything below is inside the opening (z ≤ 0), so nothing protrudes into the room. */}
     <group scale={[width / 3.8, 1, 1]}>
-    {daylight < 0.42 && <group position={[0, 0.2, 0.12]}><Sparkles count={46} scale={[3.2, 1.9, 0.25]} size={2.6} speed={0.35} color="#dfe8ff" /></group>}
-    {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, 0.1]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
-    {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, 0.09]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
-    {wet && <RainCurtain hail={weather === 'hail'} />}
+      {/* The single sun: only the main window draws it, and it stays recessed behind the glass. */}
+      {celestial && daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, -0.03]}><sphereGeometry args={[0.16 + daylight * 0.1, 16, 12]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} /></mesh>}
+      {/* The moon takes the same window at night, opposite the sun. */}
+      {celestial && daylight < 0.35 && <mesh position={[0.95, 0.6, -0.03]}><sphereGeometry args={[0.15, 16, 12]} /><meshStandardMaterial color="#e8ecf5" emissive="#cfd8ec" emissiveIntensity={1.5} toneMapped={false} /></mesh>}
+      {daylight < 0.42 && <group position={[0, 0.2, -0.02]}><Sparkles count={46} scale={[3.2, 1.9, 0.2]} size={2.6} speed={0.35} color="#dfe8ff" /></group>}
+      {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, -0.02]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
+      {/* Drifting clouds, faint by day and lit by the city glow at night. */}
+      <group ref={clouds} position={[0, 0.6, -0.025]}>
+        {[[-1.3, 0.1], [0.2, 0.35], [1.5, -0.1]].map(([cx, cy], i) => <mesh key={`cl${i}`} position={[cx, cy, 0]}><boxGeometry args={[0.9, 0.22, 0.02]} /><meshStandardMaterial color={daylight > 0.4 ? '#e9f1fb' : '#3a4a63'} emissive={daylight > 0.4 ? '#cddcf0' : '#26364f'} emissiveIntensity={daylight > 0.4 ? 0.3 : 0.5} transparent opacity={0.75} /></mesh>)}
+      </group>
+      {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, -0.01]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
+      {wet && <RainCurtain hail={weather === 'hail'} />}
     </group>
     {/* openable glass pane, hinged at the bottom */}
-    <group ref={pane} position={[0, -0.75, 0.13]}>
+    <group ref={pane} position={[0, -0.75, 0.05]}>
       <mesh position={[0, 0.75, 0]}><boxGeometry args={[width - 1.3, 1.5, 0.04]} /><meshStandardMaterial color="#6f9fc0" transparent opacity={0.22} metalness={0.3} roughness={0.1} /></mesh>
       <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[0.05, 1.5, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
       <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[width - 1.3, 0.05, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
@@ -411,7 +433,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
 
     case 'window': return <WindowUnit />;
     // Second window on the bed side; narrower, and it reads the same day-cycle and weather state.
-    case 'window2': return <WindowUnit width={2.6} />;
+    // Same shared world, but it does NOT draw the sun/moon — there is only one sun, in the main window.
+    case 'window2': return <WindowUnit width={2.6} celestial={false} />;
 
     case 'posters': return <Poster top="#b8708a" bottom="#4f6f8c" />;
     case 'posters2': return <Poster top="#5a86a0" bottom="#2f4a5a" />;

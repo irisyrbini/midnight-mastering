@@ -43,11 +43,11 @@ export function GameShell() {
         event.preventDefault();
         const state = useGameStore.getState();
         if (state.prompt) return; // the prompt has its own buttons; Enter must not double-fire behind it
-        if (state.activeLocationId === 'elevator') return; // riding: no interactions until the doors open
-        // The lobby's only purposeful action is calling the elevator back up; in the hallway, Enter is
-        // the way back into the studio (the elevator there has its own button). Keeping Enter bound
-        // means neither exit can be stranded behind an off-screen prop or an overlay.
-        if (state.activeLocationId === 'apartment-lobby') { state.callElevator(); return; }
+        if (state.activeLocationId === 'elevator') return; // riding / choosing a floor: use the floor buttons
+        // Enter is the primary exit on each non-studio floor: the lobby and rooftop step into the
+        // elevator; the hallway goes back into the studio (its elevator has its own button). Keeping
+        // Enter bound means no exit can be stranded behind an off-screen prop or an overlay.
+        if (state.activeLocationId === 'apartment-lobby' || state.activeLocationId === 'apartment-rooftop') { state.enterElevator(); return; }
         if (state.activeLocationId === 'apartment-hallway' || state.activeLocationId === 'apartment-corridor') { state.returnToStudio(); return; }
         // Enter toggles: if an interaction overlay is open, a second Enter closes it; otherwise interact.
         if (state.activeVideoId) { state.closeVideo(); return; }

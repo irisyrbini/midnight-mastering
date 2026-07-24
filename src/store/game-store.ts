@@ -82,7 +82,8 @@ type GameState = GameSnapshot & {
   closeFriendMenu: () => void;
   doFriendActivity: (activity: FriendActivity) => void;
   returnToStudio: () => void;
-  callElevator: () => void;
+  enterElevator: () => void;
+  selectFloor: (loc: string) => void;
   choose: (kind: string) => void;
   dismissPrompt: () => void;
   pause: () => void;
@@ -120,7 +121,9 @@ const clampToRoom = (p: Point): Point => ({ x: Math.max(70, Math.min(1240, p.x))
 // Gameplay collision is kept in the same logical coordinate space as the
 // room layout.  Small tabletop props remain decorative; these are the major
 // obstacles the producer should walk around.
-const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'entrance', 'closet']);
+// The studio door (`entrance`) is intentionally NOT a collider, so the producer can walk right up to it
+// (and, on the other floors, right up to the elevator) instead of being stopped short of the trigger.
+const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'closet']);
 const PLAYER_RADIUS = 14;
 const COLLIDER_INSET = 16;
 const isBlocked = (p: Point, radius = PLAYER_RADIUS) => STUDIO_OBJECTS.some((object) => {
@@ -203,13 +206,18 @@ const LEAVE_STUDIO_PROMPT: Prompt = {
   ],
 };
 
-/** The elevator call button, shown on whichever floor the producer is standing on. */
-const ELEVATOR_PROMPT: Prompt = {
-  title: 'Take the elevator?',
-  choices: [
-    { label: 'Yes', kind: 'elevator-ride' },
-    { label: 'No', kind: 'dismiss' },
-  ],
+/** The floors the elevator serves. `loc` is the location the rider is dropped into for that floor. */
+export type ElevatorFloor = { key: string; label: string; loc: string };
+export const ELEVATOR_FLOORS: ElevatorFloor[] = [
+  { key: 'studio', label: 'Studio', loc: 'apartment-hallway' },
+  { key: 'lobby', label: 'Lobby · 1F', loc: 'apartment-lobby' },
+  { key: 'rooftop', label: 'Rooftop', loc: 'apartment-rooftop' },
+];
+/** Where the producer stands when dropped on each floor (logical room coords). */
+const FLOOR_SPAWN: Record<string, Point> = {
+  'apartment-hallway': { x: 640, y: 560 },
+  'apartment-lobby': { x: 640, y: 600 },
+  'apartment-rooftop': { x: 640, y: 600 },
 };
 
 /**
@@ -406,8 +414,24 @@ export const useGameStore = create<GameState>((set) => ({
       ? { visitedLobby: false, needs: applyNeedChange(state.needs, { energy: -4, social: 3 }), stress: clamp(state.stress - 9) }
       : {}),
   })),
-  /** The lobby's call button. Raises the same confirmation the studio's button does, so the ride is symmetric. */
-  callElevator: () => set((state) => (state.elevatorTo || state.phase !== 'playing' ? state : { prompt: ELEVATOR_PROMPT })),
+  /** Step into the car from any floor. The doors are open, a floor has not been picked yet (`elevatorTo === null`),
+   * so the floor-selection panel shows; the actual ride starts in `selectFloor`. */
+  enterElevator: () => set((state) => (state.phase !== 'playing' ? state : {
+    activeLocationId: 'elevator',
+    elevatorTo: null,
+    elevatorArrivesAt: 0,
+    playerPosition: { x: 640, y: 560 },
+    moveTarget: null,
+    entranceOpen: false,
+    seated: false,
+    lyingDown: false,
+    selectedObjectId: undefined,
+  })),
+  /** Pick a floor: the doors close, the car travels, and `tick` drops the rider on that floor. */
+  selectFloor: (loc) => set((state) => (state.activeLocationId !== 'elevator' || state.elevatorTo ? state : {
+    elevatorTo: loc,
+    elevatorArrivesAt: state.elapsedMs + ELEVATOR_RIDE_MS,
+  })),
   doFriendActivity: (kind) => set((state) => {
     if (!state.visitorActive || state.visitorPhase !== 'staying') return state;
     const activities: Record<FriendActivity, { needs: NeedChange; emotions: EmotionalEffect[]; collaboration?: number }> = {
@@ -466,7 +490,7 @@ export const useGameStore = create<GameState>((set) => ({
         activeLocationId: state.elevatorTo as string,
         elevatorTo: null,
         elevatorArrivesAt: 0,
-        playerPosition: { x: 640, y: 620 },
+        playerPosition: FLOOR_SPAWN[state.elevatorTo as string] ?? { x: 640, y: 600 },
         moveTarget: null as MoveTarget,
         selectedObjectId: undefined,
         // Actually reaching the ground floor is what counts as "going outside".
@@ -611,23 +635,6 @@ export const useGameStore = create<GameState>((set) => ({
     if (kind === 'leave-room') {
       // Out through the studio door into the hallway — the elevator is a separate step from there.
       return { prompt: null, activeLocationId: 'apartment-hallway', playerPosition: { x: 640, y: 620 }, moveTarget: null, entranceOpen: false, seated: false, lyingDown: false, selectedObjectId: undefined };
-    }
-    if (kind === 'elevator-ride') {
-      // Step inside; the ride itself plays out in `tick`, which lands the producer on the other floor.
-      // The elevator only ever connects the studio floor's hallway with the ground-floor lobby.
-      const destination = state.activeLocationId === 'apartment-lobby' ? 'apartment-hallway' : 'apartment-lobby';
-      return {
-        prompt: null,
-        activeLocationId: 'elevator',
-        elevatorTo: destination,
-        elevatorArrivesAt: state.elapsedMs + ELEVATOR_RIDE_MS,
-        playerPosition: { x: 640, y: 560 },
-        moveTarget: null,
-        entranceOpen: false,
-        seated: false,
-        lyingDown: false,
-        selectedObjectId: undefined,
-      };
     }
     // dismiss / close-fridge
     return { prompt: null, fridgeOpen: false };

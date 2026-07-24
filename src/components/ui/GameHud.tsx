@@ -10,6 +10,7 @@ import { EndingOverlay } from './EndingOverlay';
 import { PromptOverlay } from './PromptOverlay';
 import { SfxPlayer } from './SfxPlayer';
 import { FriendMenu } from './FriendMenu';
+import { ElevatorFloors } from './ElevatorFloors';
 import { SaveMenu } from './SaveMenu';
 
 const NEEDS: { key: NeedKey; label: string; color: string }[] = [
@@ -74,6 +75,7 @@ export function GameHud() {
     <InteractionVideo />
     <PromptOverlay />
     <FriendMenu />
+    <ElevatorFloors />
     <PauseOverlay />
     <EndingOverlay />
     <SfxPlayer />

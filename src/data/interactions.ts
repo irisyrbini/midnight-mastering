@@ -42,7 +42,7 @@ export const INTERACTIONS: Interaction[] = [
   { id: 'doomscroll', label: 'Doom-scrolling', description: 'Lying in bed, thumb scrolling, hours you will not get back.', changes: {}, emotionalEffects: [] },
   { id: 'cables', label: 'Cable pile', description: 'Untangle one small problem.', changes: { creativity: 2, hygiene: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
   { id: 'bathroom', label: 'Bathroom door', description: 'Take a long shower and reset.', changes: { hygiene: 30, energy: -3, creativity: 2 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
-  { id: 'entrance', label: 'Elevator button', description: 'Call the elevator and decide whether to leave the studio.', changes: {}, action: 'entrance', emotionalEffects: [] },
+  { id: 'entrance', label: 'Studio door', description: 'The red door out to the hallway.', changes: {}, action: 'entrance', emotionalEffects: [] },
   { id: 'closet', label: 'Closet', description: 'Choose clothes that make leaving possible.', changes: { hygiene: 3, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
 ];
 

@@ -26,24 +26,32 @@ Objects live in a logical 2D map (roughly `1280 × 720`) as `StudioObject { id, 
 
 Two windows now light the room: the main one on the back wall, and `window2` mounted flat against the **right wall on the bed side** (`rotationY: -π/2`). Both render the same `WindowUnit`, so both read the identical day-cycle and weather state — sunrise, rain and hail appear in both at once, and any future weather is inherited automatically. `WindowUnit` takes a `width`, and everything drawn inside the opening (stars, city lights, rain) scales with it so a narrower window never overflows its frame.
 
-## 3a. Floors: studio → hallway → elevator → lobby
+## 3a. Floors: studio → hallway → elevator → { lobby, rooftop }
 
-The building is four connected spaces in a line:
+The building's spaces connect in a line, with the elevator serving three floors:
 
 ```
-Studio  ──door──►  Hallway  ──elevator──►  Lobby (ground floor)
+Studio  ──red door──►  Hallway  ──elevator──►  Studio floor · Lobby (1F) · Rooftop
 ```
 
-- **Studio door.** The studio's `entrance` object is the door out. Using it raises *Leave the studio?* Yes/No; Yes drops the player into the **hallway** (`apartment-hallway`), not straight into a ride.
-- **Hallway** (`Hallway`) — the restored studio-floor corridor: the red studio door on the left (returns to the studio, `returnToStudio`) and the elevator on the right (`ELEVATOR · DOWN`). This is the original corridor scene, kept as its own landing.
-- **Elevator** (`elevator`, rendered by `ElevatorCar`) — pure transport, never a destination you explore. Calling it raises *Take the elevator?* Yes/No; Yes plays a `ELEVATOR_RIDE_MS` (5s) ride: doors shut over the first second, the car travels, a chime sounds one second before arrival, and the doors part as `tick` lands the player on the other floor. The car interior is deliberately **cosy and dated**: warm orange light, marble tile, brushed-metal walls with a wood dado rail and brass handrail, a mirror on the wall the rider faces, a ceiling light panel and a button panel. It has its own fixed camera (`ElevatorRig`).
-- **Lobby** (`apartment-lobby`, rendered by `Lobby`) — the ground floor of an **older apartment building**: terrazzo checkerboard floor, cream walls over a dark-green dado, a wall of **brass mailboxes**, a cast-iron radiator, a worn bench, a potted palm, and street doors glowing at the far end. It is a separate explorable space, **not** replaced by the elevator; the elevator here (`ELEVATOR · UP`) is only the ride back up. **Riding down always arrives in the lobby.**
+- **Studio door.** The studio's `entrance` object is the red door out (`action: 'entrance'`, not a collider, so the producer can walk right up to it). Using it raises *Leave the studio?* Yes/No; Yes drops the player into the **hallway** (`apartment-hallway`). Re-entering the studio (from the hallway's red door, `returnToStudio`) spawns the player back at that same door (`ENTRANCE_POSITION`), so leaving and entering keep spatial continuity through one door.
+- **Hallway** (`Hallway`) — the studio-floor corridor: the red studio door on the left, the elevator on the right (`ELEVATOR`). Its walls use the studio's translucent-`depthWrite`-off treatment so they never occlude the camera.
+- **Elevator** (`elevator`, `ElevatorCar`) — pure transport with **floor selection**, never a destination you explore. `enterElevator()` steps the rider in with the doors open and `elevatorTo === null`, which shows the `ElevatorFloors` panel (**Studio / Lobby · 1F / Rooftop**). `selectFloor(loc)` starts the ride: doors shut over the first second, the car travels `ELEVATOR_RIDE_MS` (5s), a chime sounds one second before arrival, and `tick` drops the rider at that floor's `FLOOR_SPAWN`. Interior is cosy and dated (warm light, marble tile, brushed metal, dado rail, brass handrail, mirror). Own fixed camera (`ElevatorRig`).
+- **Lobby** (`apartment-lobby`, `Lobby`) — the ground floor of an **older apartment building**: terrazzo floor, cream-over-dark-green walls, brass mailboxes, radiator, bench, potted palm, street doors. Walls translucent like the studio's. A separate explorable space, **not** replaced by the elevator (`ELEVATOR` button rides back up).
+- **Rooftop** (`apartment-rooftop`, `Rooftop`) — a new explorable floor reachable only by the elevator, and genuinely **outdoors**: it shares the world with the windows (see §3b), showing one sun/moon on the same `dayCycle` and weather. Deck with seams, a low parapet on all four edges, a water tank on stilts, roof vents, a festoon-light string, a distant city skyline, and the elevator head-house back down.
 
-`Hallway` and `Lobby` are corridor-scale, so they use `PlaceRig` (their own orbit framing) instead of the much larger studio's camera distances. The `apartment-corridor` id from the previous build still routes to the hallway so older saves land somewhere sensible.
+`Hallway`, `Lobby` and `Rooftop` are their own scale, so each uses `PlaceRig` for framing. The `apartment-corridor` id from an earlier build still routes to the hallway so older saves land somewhere sensible.
 
-Note the scenes have no environment map, so **high `metalness` renders black** under punctual lights — elevator and lobby metals keep metalness ≈ 0.25–0.35 and let the diffuse colour carry.
+Note the scenes have no environment map, so **high `metalness` renders black** under punctual lights — elevator/lobby metals keep metalness ≈ 0.25–0.35.
 
 **Going outside is a real choice:** the going-outside buff (`stress −9`, `energy −4`, `social +3`) is gated on actually reaching the lobby (`visitedLobby`) and lands once, on the next return into the studio.
+
+## 3b. The shared outdoor world (windows + rooftop)
+
+Both windows call one `WindowUnit`, driven by the same `dayCycle(minuteOfDay)` + `weather`, so they always show the **same** sky, time and weather — the second window is another viewpoint, not a separate environment. Two rules keep it honest:
+
+- **One sun.** Only the main window (`celestial` = true, the default) draws the sun and moon disc; `window2` passes `celestial={false}`, so a second window never mints a second sun. The two windows face perpendicular walls, so physically the sun belongs to at most one of them anyway. The rooftop, being outdoors, shows the same single sun on the same `dayCycle` curve.
+- **Sun stays outside.** Every outdoor layer — sky backdrop, sun, moon, stars, city lights, clouds, rain — is recessed to `z ≤ 0`, i.e. **behind the window's front frame face**, so the sun mesh can never intersect the glass or clip into the room. Sunlight still enters (the directional light and sky tint are unchanged); only the disc is held outside.
 
 ## 4. Movement bounds
 

@@ -50,6 +50,8 @@ const HALLWAY_CAM: [number, number, number] = [0, 6.4, 6.2];
 const HALLWAY_TARGET: [number, number, number] = [0, 1.4, -2.4];
 const LOBBY_CAM: [number, number, number] = [0, 8.0, 8.6];
 const LOBBY_TARGET: [number, number, number] = [0, 1.5, -0.8];
+const ROOFTOP_CAM: [number, number, number] = [0, 8.2, 10.5];
+const ROOFTOP_TARGET: [number, number, number] = [0, 1.0, -1.5];
 
 const CLOTH = '#161a24';
 const CLOTH_DARK = '#0e111a';
@@ -708,6 +710,7 @@ function Room() {
   const sunColor = new THREE.Color('#9bb9ff').lerp(new THREE.Color('#ffb877'), golden).lerp(new THREE.Color('#fff1d0'), Math.max(0, daylight - golden)).getStyle();
   if (activeLocationId === 'elevator') return <ElevatorCar />;
   if (activeLocationId === 'apartment-lobby') return <Lobby />;
+  if (activeLocationId === 'apartment-rooftop') return <Rooftop />;
   // 'apartment-corridor' is the pre-hallway id kept so older saves still land somewhere sensible.
   if (activeLocationId === 'apartment-hallway' || activeLocationId === 'apartment-corridor') return <Hallway />;
   return <>
@@ -774,17 +777,21 @@ function ElevatorRig() {
  */
 function ElevatorCar() {
   const arrivesAt = useGameStore((state) => state.elevatorArrivesAt);
+  const traveling = useGameStore((state) => state.elevatorTo !== null);
   const doorL = useRef<THREE.Group>(null);
   const doorR = useRef<THREE.Group>(null);
   const dinged = useRef(false);
   useEffect(() => { dinged.current = false; }, [arrivesAt]);
   useFrame(() => {
-    const remaining = arrivesAt - useGameStore.getState().elapsedMs;
-    const elapsed = ELEVATOR_RIDE_MS - remaining;
-    // Shut over the first second, stay shut through the ride, part again over the last second.
-    // Clamped so an out-of-range clock (a restored save, a paused tab) can never fling the doors off-screen.
-    const closed = Math.max(0, Math.min(1, elapsed / ELEVATOR_DOOR_MS)) * (remaining > ELEVATOR_DING_MS ? 1 : Math.max(0, remaining / ELEVATOR_DING_MS));
-    if (!dinged.current && remaining <= ELEVATOR_DING_MS) { dinged.current = true; playElevatorDing(); }
+    // While choosing a floor the car is stationary with its doors open; the ride only runs once a floor
+    // is picked (`traveling`). Doors shut over the first second, stay shut, then part over the last.
+    let closed = 0;
+    if (traveling) {
+      const remaining = arrivesAt - useGameStore.getState().elapsedMs;
+      const elapsed = ELEVATOR_RIDE_MS - remaining;
+      closed = Math.max(0, Math.min(1, elapsed / ELEVATOR_DOOR_MS)) * (remaining > ELEVATOR_DING_MS ? 1 : Math.max(0, remaining / ELEVATOR_DING_MS));
+      if (!dinged.current && remaining <= ELEVATOR_DING_MS) { dinged.current = true; playElevatorDing(); }
+    }
     if (doorL.current) doorL.current.position.x = -2.32 + closed * 1.2;
     if (doorR.current) doorR.current.position.x = 2.32 - closed * 1.2;
   });
@@ -834,13 +841,15 @@ function ElevatorCar() {
  */
 function Hallway() {
   const returnToStudio = useGameStore((state) => state.returnToStudio);
-  const callElevator = useGameStore((state) => state.callElevator);
+  const enterElevator = useGameStore((state) => state.enterElevator);
   return <>
     <color attach="background" args={['#292018']} /><ambientLight intensity={0.72} color="#d58b52" /><pointLight position={[-1.8, 3.5, 1]} color="#f0a35b" intensity={10} distance={10} /><pointLight position={[2.8, 4.4, -2.5]} color="#ffd08a" intensity={7} distance={8} />
     <mesh receiveShadow position={[0, -0.08, 0]}><boxGeometry args={[9, 0.16, 12]} /><meshStandardMaterial color="#3b4149" roughness={0.82} /></mesh>
-    <mesh position={[0, 3, -4.5]}><boxGeometry args={[9, 6, 0.2]} /><meshStandardMaterial color="#50515a" /></mesh>
-    <mesh position={[-4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" /></mesh>
-    <mesh position={[4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" /></mesh>
+    {/* Walls use the same auto-clearing transparency as the studio: translucent with depthWrite off, so
+        a wall between the camera and the player never blocks the view and restores as the camera moves. */}
+    <mesh position={[0, 3, -4.5]}><boxGeometry args={[9, 6, 0.2]} /><meshStandardMaterial color="#50515a" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[-4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" transparent opacity={0.16} depthWrite={false} /></mesh>
     {/* Worn runner down the middle of the corridor. */}
     <mesh position={[0, 0.01, 0.5]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[2.6, 10]} /><meshStandardMaterial color="#6d4740" roughness={0.95} /></mesh>
     {/* Studio door on the left: distinct from the elevator, and always returns to the same room. */}
@@ -856,7 +865,7 @@ function Hallway() {
       <mesh position={[0, 1.6, 0]} castShadow><boxGeometry args={[2.8, 3.2, 0.2]} /><meshStandardMaterial color="#20262f" metalness={0.35} roughness={0.5} /></mesh>
       <mesh position={[-0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
       <mesh position={[0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
-      <group position={[1.72, 1.35, 0.15]}><ElevatorPanel onPress={callElevator} label="ELEVATOR · DOWN" /></group>
+      <group position={[1.72, 1.35, 0.15]}><ElevatorPanel onPress={enterElevator} label="ELEVATOR" /></group>
     </group>
     <Player /><PlaceRig from={HALLWAY_CAM} target={HALLWAY_TARGET} min={7} max={16} />
   </>;
@@ -868,7 +877,7 @@ function Hallway() {
  * elevator is only how you get here — the lobby is its own space to walk around.
  */
 function Lobby() {
-  const callElevator = useGameStore((state) => state.callElevator);
+  const enterElevator = useGameStore((state) => state.enterElevator);
   return <>
     <color attach="background" args={['#241b14']} />
     <ambientLight intensity={0.66} color="#d8955c" />
@@ -883,13 +892,14 @@ function Lobby() {
         <planeGeometry args={[2.0, 1.7]} /><meshStandardMaterial color={(r + c) % 2 ? '#8e836f' : '#a89b86'} roughness={0.42} />
       </mesh>
     )))}
-    {/* Walls with a dark green dado and a cream upper, the way these buildings were painted. */}
-    <mesh position={[0, 3.2, -5.2]}><boxGeometry args={[11, 6.4, 0.2]} /><meshStandardMaterial color="#cbbda4" roughness={0.9} /></mesh>
-    <mesh position={[0, 0.95, -5.05]}><boxGeometry args={[11, 1.9, 0.08]} /><meshStandardMaterial color="#3f5449" roughness={0.85} /></mesh>
-    <mesh position={[-5.4, 3.2, 0]}><boxGeometry args={[0.2, 6.4, 14]} /><meshStandardMaterial color="#c2b499" roughness={0.9} /></mesh>
-    <mesh position={[-5.25, 0.95, 0]}><boxGeometry args={[0.08, 1.9, 14]} /><meshStandardMaterial color="#3f5449" roughness={0.85} /></mesh>
-    <mesh position={[5.4, 3.2, 0]}><boxGeometry args={[0.2, 6.4, 14]} /><meshStandardMaterial color="#c2b499" roughness={0.9} /></mesh>
-    <mesh position={[5.25, 0.95, 0]}><boxGeometry args={[0.08, 1.9, 14]} /><meshStandardMaterial color="#3f5449" roughness={0.85} /></mesh>
+    {/* Walls with a dark green dado and a cream upper, the way these buildings were painted. They use
+        the same translucent-with-depthWrite-off treatment as the studio so they never block the camera. */}
+    <mesh position={[0, 3.2, -5.2]}><boxGeometry args={[11, 6.4, 0.2]} /><meshStandardMaterial color="#cbbda4" roughness={0.9} transparent opacity={0.18} depthWrite={false} /></mesh>
+    <mesh position={[0, 0.95, -5.05]}><boxGeometry args={[11, 1.9, 0.08]} /><meshStandardMaterial color="#3f5449" roughness={0.85} transparent opacity={0.18} depthWrite={false} /></mesh>
+    <mesh position={[-5.4, 3.2, 0]}><boxGeometry args={[0.2, 6.4, 14]} /><meshStandardMaterial color="#c2b499" roughness={0.9} transparent opacity={0.18} depthWrite={false} /></mesh>
+    <mesh position={[-5.25, 0.95, 0]}><boxGeometry args={[0.08, 1.9, 14]} /><meshStandardMaterial color="#3f5449" roughness={0.85} transparent opacity={0.18} depthWrite={false} /></mesh>
+    <mesh position={[5.4, 3.2, 0]}><boxGeometry args={[0.2, 6.4, 14]} /><meshStandardMaterial color="#c2b499" roughness={0.9} transparent opacity={0.18} depthWrite={false} /></mesh>
+    <mesh position={[5.25, 0.95, 0]}><boxGeometry args={[0.08, 1.9, 14]} /><meshStandardMaterial color="#3f5449" roughness={0.85} transparent opacity={0.18} depthWrite={false} /></mesh>
     {/* Street doors at the far end: dark frames with panes lit from outside. */}
     <group position={[0, 0, 6.6]}>
       <mesh position={[0, 2.3, 0]}><boxGeometry args={[4.4, 4.6, 0.2]} /><meshStandardMaterial color="#33291f" roughness={0.7} /></mesh>
@@ -933,9 +943,75 @@ function Lobby() {
       {/* Floor-indicator dial above the doors. */}
       <mesh position={[0, 3.34, 0.16]}><boxGeometry args={[0.9, 0.34, 0.06]} /><meshStandardMaterial color="#2b2118" /></mesh>
       <mesh position={[0, 3.34, 0.2]}><planeGeometry args={[0.74, 0.2]} /><meshStandardMaterial color="#ffb457" emissive="#ff8c22" emissiveIntensity={1.3} toneMapped={false} /></mesh>
-      <group position={[1.85, 1.4, 0.16]}><ElevatorPanel onPress={callElevator} label="ELEVATOR · UP" /></group>
+      <group position={[1.85, 1.4, 0.16]}><ElevatorPanel onPress={enterElevator} label="ELEVATOR" /></group>
     </group>
     <Player /><PlaceRig from={LOBBY_CAM} target={LOBBY_TARGET} min={8} max={19} />
+  </>;
+}
+
+/**
+ * The rooftop — a new explorable floor reached only by the elevator. It is genuinely outdoors, so it
+ * shares the same world as the windows: one sun / moon driven by the same `dayCycle`, the same weather
+ * and time of day. Parapet on all sides, a water tank, roof vents, a string of festoon lights and the
+ * elevator head-house you arrived through.
+ */
+function Rooftop() {
+  const enterElevator = useGameStore((state) => state.enterElevator);
+  const minute = useGameStore((state) => Math.floor(state.clock.minuteOfDay));
+  const weather = useGameStore((state) => state.weather);
+  const { daylight, golden, sunProgress } = dayCycle(minute);
+  const wet = weather === 'rain' || weather === 'hail';
+  const sky = new THREE.Color('#0a1430')
+    .lerp(new THREE.Color('#8ec6e6'), daylight)
+    .lerp(new THREE.Color('#e79a54'), golden * (0.2 + daylight * 0.5))
+    .lerp(new THREE.Color(wet ? '#33485d' : weather === 'rainbow' ? '#7799b6' : '#0a1430'), weather === 'clear' ? 0 : wet ? 0.5 : 0.3)
+    .getStyle();
+  // The single shared sun climbs from the 4:30 AM horizon exactly as it does in the window.
+  const sunX = -7 + sunProgress * 14;
+  const sunY = 1.4 + sunProgress * 6.5;
+  const sunColor = golden > 0.2 ? '#ff8c3a' : '#ffd98a';
+  return <>
+    <color attach="background" args={[sky]} /><fog attach="fog" args={[sky, 14, 40]} />
+    <ambientLight intensity={0.5 + daylight * 0.8} color={new THREE.Color('#6a80b0').lerp(new THREE.Color('#ffdca8'), golden).lerp(new THREE.Color('#bcd8ef'), Math.max(0, daylight - golden)).getStyle()} />
+    <directionalLight castShadow position={[sunX, sunY + 1, -6]} intensity={0.6 + daylight * 2.4} color={new THREE.Color('#9bb9ff').lerp(new THREE.Color('#ffb877'), golden).lerp(new THREE.Color('#fff1d0'), Math.max(0, daylight - golden)).getStyle()} />
+    {/* One sun, high and far beyond the parapet; it never enters the deck. Blooms. */}
+    {daylight > 0.02 && <mesh position={[sunX, sunY, -13]}><sphereGeometry args={[0.7 + daylight * 0.35, 20, 16]} /><meshStandardMaterial color={sunColor} emissive={sunColor} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} /></mesh>}
+    {/* The moon takes the sky at night, opposite the sun. */}
+    {daylight < 0.35 && <mesh position={[4.5, 6.2, -13]}><sphereGeometry args={[0.5, 18, 14]} /><meshStandardMaterial color="#e8ecf5" emissive="#cfd8ec" emissiveIntensity={1.4} toneMapped={false} /></mesh>}
+    {daylight < 0.4 && <group position={[0, 5, -12]}><Sparkles count={80} scale={[26, 9, 3]} size={2.4} speed={0.25} color="#dfe8ff" /></group>}
+    {wet && <group position={[0, 4, -6]}><Sparkles count={weather === 'hail' ? 120 : 90} scale={[24, 9, 10]} size={weather === 'hail' ? 2.2 : 1.0} speed={weather === 'hail' ? 3 : 1.9} color={weather === 'hail' ? '#eaf6ff' : '#a6d4f7'} /></group>}
+    {/* Distant city skyline silhouette beyond the parapet. */}
+    {Array.from({ length: 16 }).map((_, i) => (
+      <mesh key={`sk${i}`} position={[-11 + i * 1.5, 0.5 + (i % 4) * 0.8, -10.5]}><boxGeometry args={[1.2, 2 + (i % 4) * 1.6, 0.6]} /><meshStandardMaterial color="#161f38" emissive="#26406a" emissiveIntensity={daylight < 0.4 ? 0.5 : 0.1} /></mesh>
+    ))}
+    {/* Rooftop deck. */}
+    <mesh receiveShadow position={[0, -0.08, 0]} rotation={[0, 0, 0]}><boxGeometry args={[13, 0.16, 12]} /><meshStandardMaterial color="#3a3d44" roughness={0.92} /></mesh>
+    {Array.from({ length: 6 }).map((_, i) => <mesh key={`seam${i}`} position={[-5 + i * 2, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.05, 11.5]} /><meshStandardMaterial color="#2a2d33" /></mesh>)}
+    {/* Parapet wall running the four edges (kept low so it never blocks the camera). */}
+    <mesh position={[0, 0.55, -5.9]}><boxGeometry args={[13, 1.1, 0.3]} /><meshStandardMaterial color="#4a4e57" roughness={0.85} /></mesh>
+    <mesh position={[-6.4, 0.55, 0]}><boxGeometry args={[0.3, 1.1, 12]} /><meshStandardMaterial color="#4a4e57" roughness={0.85} /></mesh>
+    <mesh position={[6.4, 0.55, 0]}><boxGeometry args={[0.3, 1.1, 12]} /><meshStandardMaterial color="#4a4e57" roughness={0.85} /></mesh>
+    <mesh position={[0, 0.55, 5.9]}><boxGeometry args={[13, 1.1, 0.3]} /><meshStandardMaterial color="#4a4e57" roughness={0.85} /></mesh>
+    {/* Water tank on stilts. */}
+    <group position={[-4.2, 0, -3.6]}>
+      <mesh position={[0, 2.4, 0]} castShadow><cylinderGeometry args={[1.05, 1.05, 1.6, 16]} /><meshStandardMaterial color="#6b5136" roughness={0.8} /></mesh>
+      <mesh position={[0, 3.35, 0]}><coneGeometry args={[1.15, 0.6, 16]} /><meshStandardMaterial color="#4a3a28" roughness={0.8} /></mesh>
+      {[[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]].map(([lx, lz], i) => <mesh key={i} position={[lx, 0.8, lz]}><boxGeometry args={[0.12, 1.6, 0.12]} /><meshStandardMaterial color="#2f3641" metalness={0.4} /></mesh>)}
+    </group>
+    {/* A couple of roof vents / AC units. */}
+    <mesh position={[3.6, 0.42, 2.6]} castShadow><boxGeometry args={[1.4, 0.9, 1.1]} /><meshStandardMaterial color="#8b9099" metalness={0.5} roughness={0.5} /></mesh>
+    <mesh position={[3.6, 0.92, 2.6]}><cylinderGeometry args={[0.35, 0.35, 0.14, 16]} /><meshStandardMaterial color="#2b2f36" /></mesh>
+    <mesh position={[-2.4, 0.3, 3.4]} castShadow><boxGeometry args={[0.8, 0.6, 0.8]} /><meshStandardMaterial color="#5a5f68" metalness={0.4} roughness={0.6} /></mesh>
+    {/* Festoon string lights between the tank and the head-house. */}
+    {Array.from({ length: 8 }).map((_, i) => <mesh key={`fl${i}`} position={[-3.6 + i * 0.9, 2.4 - Math.sin((i / 7) * Math.PI) * 0.5, -1.5]}><sphereGeometry args={[0.08, 8, 8]} /><meshStandardMaterial color="#ffdca0" emissive="#ffbe63" emissiveIntensity={1.6} toneMapped={false} /></mesh>)}
+    {/* Elevator head-house: the way back down. */}
+    <group position={[2.2, 0, -4.6]}>
+      <mesh position={[0, 1.5, 0]} castShadow><boxGeometry args={[2.6, 3.0, 1.6]} /><meshStandardMaterial color="#3c4049" roughness={0.8} /></mesh>
+      <mesh position={[-0.62, 1.4, 0.82]}><boxGeometry args={[1.02, 2.4, 0.06]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
+      <mesh position={[0.62, 1.4, 0.82]}><boxGeometry args={[1.02, 2.4, 0.06]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
+      <group position={[1.5, 1.35, 0.82]}><ElevatorPanel onPress={enterElevator} label="ELEVATOR" /></group>
+    </group>
+    <Player /><PlaceRig from={ROOFTOP_CAM} target={ROOFTOP_TARGET} min={8} max={22} />
   </>;
 }
 
