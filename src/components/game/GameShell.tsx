@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { GameEngine } from '@/game/core/GameEngine';
 import { ThreeStudio } from './ThreeStudio';
 import { GameHud } from '@/components/ui/GameHud';
-import { useGameStore } from '@/store/game-store';
+import { RUN_MULTIPLIER, useGameStore } from '@/store/game-store';
 
 export function GameShell() {
   useEffect(() => {
@@ -15,7 +15,7 @@ export function GameShell() {
 
   /** Browser save file: keeps the complete simulation snapshot and restores it on the next visit. */
   useEffect(() => {
-    const key = 'mmha-save-v1';
+    const key = 'mmha-save-v2';
     try {
       const saved = window.localStorage.getItem(key);
       if (saved) useGameStore.getState().hydrateSession(JSON.parse(saved) as never);
@@ -42,10 +42,11 @@ export function GameShell() {
       if (event.key === 'Enter') {
         event.preventDefault();
         const state = useGameStore.getState();
-        // The corridor has one purposeful exit: the studio door.  Making Enter
-        // work here keeps re-entry reliable even if the door is off-screen or
-        // an overlay intercepts a pointer click.
-        if (state.activeLocationId === 'apartment-corridor') { state.returnToStudio(); return; }
+        if (state.prompt) return; // the prompt has its own buttons; Enter must not double-fire behind it
+        // The lobby has one purposeful exit: the elevator. Making Enter work here keeps the ride
+        // reachable even if the call button is off-screen or an overlay intercepts a pointer click.
+        if (state.activeLocationId === 'apartment-lobby' || state.activeLocationId === 'apartment-corridor') { state.callElevator(); return; }
+        if (state.activeLocationId === 'elevator') return; // riding: no interactions until the doors open
         // Enter toggles: if an interaction overlay is open, a second Enter closes it; otherwise interact.
         if (state.activeVideoId) { state.closeVideo(); return; }
         if (state.friendMenuOpen) { state.closeFriendMenu(); return; }
@@ -64,9 +65,10 @@ export function GameShell() {
     let frame = 0;
     const move = () => {
       const running = pressed.has('shift');
-      const boost = running ? 1.85 : 1; // Shift to run
-      const dx = ((pressed.has('arrowright') || pressed.has('d') ? 2.4 : 0) - (pressed.has('arrowleft') || pressed.has('a') ? 2.4 : 0)) * boost;
-      const dy = ((pressed.has('arrowdown') || pressed.has('s') ? 1.6 : 0) - (pressed.has('arrowup') || pressed.has('w') ? 1.6 : 0)) * boost;
+      const boost = running ? RUN_MULTIPLIER : 1; // Shift to run
+      // Per-frame step in logical units, tuned to match the click-to-move walk speed.
+      const dx = ((pressed.has('arrowright') || pressed.has('d') ? 3.7 : 0) - (pressed.has('arrowleft') || pressed.has('a') ? 3.7 : 0)) * boost;
+      const dy = ((pressed.has('arrowdown') || pressed.has('s') ? 2.5 : 0) - (pressed.has('arrowup') || pressed.has('w') ? 2.5 : 0)) * boost;
       const store = useGameStore.getState();
       store.setRunning(running);
       if (dx || dy) store.movePlayer({ x: dx, y: dy });

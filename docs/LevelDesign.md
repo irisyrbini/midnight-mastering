@@ -1,6 +1,6 @@
 # Level Design — the apartment studio
 
-> Source of truth for spatial layout. Mirrors `src/data/studio-layout.ts`. The single current location is `apartment-studio`.
+> Source of truth for spatial layout. Mirrors `src/data/studio-layout.ts`. Locations: `apartment-studio`, `elevator`, `apartment-lobby`.
 
 ## 1. Layout philosophy
 
@@ -8,7 +8,9 @@ One compact, lived-in bedroom studio fills 75–90% of the viewport (per [ArtBib
 
 ## 2. Coordinate space
 
-Objects live in a logical 2D map (roughly `1280 × 720`) as `StudioObject { id, x, y, width, height, color, shape? }`. The Three.js renderer maps this to world space with `toWorld(x, y) = [(x-640)/90, (y-510)/90]`, i.e. the player anchor `(640, 510)` is world origin. The legacy Pixi scene consumes the same coordinates directly.
+Objects live in a logical 2D map (roughly `1280 × 720`) as `StudioObject { id, x, y, width, height, color, shape?, rotationY? }`. The Three.js renderer maps this to world space with `toWorld(x, y) = [(x-640)/UNITS_PER_WORLD, (y-510)/UNITS_PER_WORLD]`, i.e. the player anchor `(640, 510)` is world origin. The legacy Pixi scene consumes the same coordinates directly.
+
+**Room size.** `UNITS_PER_WORLD` (currently `72`) is how many logical units make up one world unit — *lowering it enlarges the studio*. The same layout spreads across more floor while furniture keeps its modelled size, so the gaps between pieces grow and there is more room to walk. The floor, walls and ceiling scale by the matching `ROOM_SCALE = 90 / UNITS_PER_WORLD`, as do the camera's start position, its orbit distance limits and the fog band — so the room grows without changing its proportions, framing or mood. Enlarging the studio is a one-constant change; never hand-edit the shell dimensions on their own.
 
 `shape` is one of `rect | window | guitar | light`, driving special geometry.
 
@@ -20,7 +22,19 @@ Objects live in a logical 2D map (roughly `1280 × 720`) as `StudioObject { id, 
 | **Work surface (center)** | music desk, dual monitors, laptop, studio monitors, audio interface, lyric notebook | the album; opens the DAW |
 | **Instruments (left)** | modular synths, PortaSound, sample keyboard, acoustic guitar, electric guitar | creativity + flow |
 | **Coping shelf (desk right)** | ashtray, cigarettes, vodka, energy drink, pill bottle | short-term relief, emotional debt |
-| **Living / exits** | bed, mini fridge, bathroom, entrance, closet, cables, handheld console | needs restoration, leaving |
+| **Living / exits** | bed, mini fridge, bathroom, elevator button, closet, cables, handheld console | needs restoration, leaving |
+
+Two windows now light the room: the main one on the back wall, and `window2` mounted flat against the **right wall on the bed side** (`rotationY: -π/2`). Both render the same `WindowUnit`, so both read the identical day-cycle and weather state — sunrise, rain and hail appear in both at once, and any future weather is inherited automatically. `WindowUnit` takes a `width`, and everything drawn inside the opening (stars, city lights, rain) scales with it so a narrower window never overflows its frame.
+
+## 3a. The elevator and the lobby
+
+The studio's `entrance` object is the **elevator call button**. Using it raises a *Leave the studio?* Yes/No confirmation; choosing Yes moves the player into the `elevator` location for a `ELEVATOR_RIDE_MS` (5s) ride: the doors slide shut over the first second, the car travels, a chime sounds one second before arrival, and the doors part again as `tick` lands the player on the destination floor. The lobby's call button rides back the other way, indefinitely.
+
+The car interior is deliberately **cosy and dated, not modern**: warm orange light, marble tile, brushed-metal walls with a wood dado rail and brass handrail, a mirror on the wall the rider faces, a soft ceiling light panel and a brass button panel. It has its own fixed camera (`ElevatorRig`) because the studio's orbit distances would sit outside the car.
+
+Note the scene has no environment map, so **high `metalness` renders black** under punctual lights — elevator surfaces keep metalness ≈ 0.25–0.35 and let the diffuse colour carry.
+
+**Going outside is a real choice:** returning to the studio applies a one-time `stress −9`, `energy −4`, `social +3`.
 
 ## 4. Movement bounds
 

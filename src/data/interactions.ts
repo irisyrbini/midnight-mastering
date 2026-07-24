@@ -26,6 +26,7 @@ export const INTERACTIONS: Interaction[] = [
   { id: 'posters3', label: 'Posters', description: 'A record sleeve you taped up years ago.', changes: { creativity: 3, love: 2 }, emotionalEffects: [{ node: 'love', direction: 'up' }] },
   { id: 'posters4', label: 'Posters', description: 'A ticket stub pinned to the wall.', changes: { creativity: 2, love: 2 }, emotionalEffects: [{ node: 'hope', direction: 'up' }] },
   { id: 'window', label: 'Night window', description: 'Open the window and breathe the cold night in — the tension eases and stress drops.', changes: { social: 5, creativity: 2 }, action: 'window', stressDelta: -22, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }] },
+  { id: 'window2', label: 'Bedside window', description: 'Crack the second window and let the night air cross the room.', changes: { social: 4, creativity: 2 }, action: 'window', stressDelta: -18, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }] },
   { id: 'ashtray', label: 'Ashtray', description: 'Clear the desk; the smell stays.', changes: { hygiene: -4, energy: 1 }, emotionalEffects: [{ node: 'addiction', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
   { id: 'cigarettes', label: 'Cigarettes', description: 'Step outside for a brief calm. Inspiration comes quickly, then fades.', changes: { energy: 3, creativity: 2, hunger: -5, hygiene: -6 }, emotionalEffects: [{ node: 'addiction', direction: 'up' }, { node: 'burnout', direction: 'down' }], inspirationMinutes: 30 },
   { id: 'vodka', label: 'Vodka bottle', description: 'Pour a drink and soften the edges — the ideas come loose, the energy drains.', changes: { creativity: 7, energy: -9, social: 4, love: -5, hygiene: -4 }, stressDelta: -6, emotionalEffects: [{ node: 'addiction', direction: 'up' }, { node: 'hope', direction: 'down' }] },
@@ -41,7 +42,7 @@ export const INTERACTIONS: Interaction[] = [
   { id: 'doomscroll', label: 'Doom-scrolling', description: 'Lying in bed, thumb scrolling, hours you will not get back.', changes: {}, emotionalEffects: [] },
   { id: 'cables', label: 'Cable pile', description: 'Untangle one small problem.', changes: { creativity: 2, hygiene: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
   { id: 'bathroom', label: 'Bathroom door', description: 'Take a long shower and reset.', changes: { hygiene: 30, energy: -3, creativity: 2 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
-  { id: 'entrance', label: 'Entrance', description: 'Open the door and decide whether to leave the room.', changes: { social: 20, energy: -3, hygiene: -1 }, action: 'entrance', stressDelta: -12, emotionalEffects: [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
+  { id: 'entrance', label: 'Elevator button', description: 'Call the elevator and decide whether to leave the studio.', changes: {}, action: 'entrance', emotionalEffects: [] },
   { id: 'closet', label: 'Closet', description: 'Choose clothes that make leaving possible.', changes: { hygiene: 3, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
 ];
 

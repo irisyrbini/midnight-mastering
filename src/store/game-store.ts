@@ -42,7 +42,6 @@ type GameState = GameSnapshot & {
   visitorLeaveAt: number;
   weather: WeatherKind;
   weatherMinutes: number;
-  visitorCheckMinutes: number;
   friendMenuOpen: boolean;
   collaborationMinutes: number;
   guitarNotesMinutes: number;
@@ -56,6 +55,12 @@ type GameState = GameSnapshot & {
   /** Where NPC 2 is currently strolling to, and when its current pause ends. */
   npc2Target: Point;
   npc2PauseUntil: number;
+  /** Elevator ride in progress: where it is heading and when it gets there (`elapsedMs`). */
+  elevatorTo: string | null;
+  elevatorArrivesAt: number;
+  /** Ambient thought bubble above the producer. `n` bumps so the renderer can restart its fade. */
+  thought: Thought | null;
+  thoughtCooldown: number;
   selectedObjectId?: string;
   activeVideoId?: string;
   ending: Ending;
@@ -75,6 +80,7 @@ type GameState = GameSnapshot & {
   closeFriendMenu: () => void;
   doFriendActivity: (activity: FriendActivity) => void;
   returnToStudio: () => void;
+  callElevator: () => void;
   choose: (kind: string) => void;
   dismissPrompt: () => void;
   pause: () => void;
@@ -88,6 +94,12 @@ export type PromptChoice = { label: string; kind: string };
 export type Prompt = { title: string; note?: string; choices: PromptChoice[] };
 type VisitorPhase = 'arriving' | 'staying' | 'leaving';
 type SfxCue = { id: string; n: number };
+export type Thought = { text: string; n: number };
+
+/** How long a full elevator ride takes, and the beats inside it (doors close → travel → ding → doors open). */
+export const ELEVATOR_RIDE_MS = 5000;
+export const ELEVATOR_DOOR_MS = 1000;
+export const ELEVATOR_DING_MS = 1000; // before arrival
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 export const GAME_MINUTES_PER_REAL_SECOND = 2.0;
@@ -95,7 +107,8 @@ const decayPerGameMinute: ProducerNeeds = { hunger: 0.12, energy: 0.12, hygiene:
 
 /** Point-and-click navigation target. `selectId` keeps a clicked object selected while walking to it. */
 type MoveTarget = { x: number; y: number; selectId?: string } | null;
-const WALK_SPEED = 340; // logical px per real second
+const WALK_SPEED = 520; // logical px per real second — a brisk, purposeful walk
+export const RUN_MULTIPLIER = 2.3; // Shift sprint, shared with the keyboard handler
 const SELECT_RADIUS = 105;
 type Point = { x: number; y: number };
 
@@ -179,13 +192,40 @@ const PHONE_PROMPT: Prompt = {
     { label: 'Put it down', kind: 'dismiss' },
   ],
 };
-const ENTRANCE_PROMPT: Prompt = {
-  title: 'The corridor is quiet. Leave the room?',
+const ELEVATOR_PROMPT: Prompt = {
+  title: 'Leave the studio?',
   choices: [
-    { label: 'Step into the corridor', kind: 'leave-room' },
-    { label: 'Stay in the studio', kind: 'dismiss' },
+    { label: 'Yes', kind: 'elevator-ride' },
+    { label: 'No', kind: 'dismiss' },
   ],
 };
+
+/**
+ * Ambient thought bubbles (see docs/UI.md §4). The producer never speaks — these are mood, not dialogue,
+ * so the pools are overwhelmingly symbols and the rare word is one or two syllables. `pickThought`
+ * chooses a pool from what is happening right now, and the caller enforces a long cooldown.
+ */
+const THOUGHTS = {
+  working: ['…', '…', '💡', '♪', '...', '…'],
+  music: ['♪', '♫', '♬', '💡', '♪', '…'],
+  smoking: ['🚬', '…', '☁', '…', '…'],
+  anime: ['♪', '…', '♥', '…'],
+  gaming: ['🎮', '!', '♪', '…', '!!'],
+  rain: ['🌧', '…', '…', 'Rain.'],
+  hungry: ['🍜', '…', 'Hungry.'],
+  sleepy: ['💤', '…', 'Sleep.', '…'],
+  goodMood: ['♪', '♬', '…', 'Nice.'],
+  lowMood: ['…', '…', '…', 'Hm.', '…'],
+  friend: ['!', '👋', '♪'],
+  sunrise: ['☀', '…', 'Morning.'],
+  idle: ['…', '…', '…', '…', '?', '…', '♪', '…', 'Hm.', '…', '☕', '…'],
+} as const;
+
+/** Weighted pick of the pool that best matches the moment, then a random line from it. */
+function pickThought(pools: readonly (readonly string[])[]): string {
+  const pool = pools[Math.floor(Math.random() * pools.length)];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 /** Sustained-wellbeing collapse. See docs/Gameplay.md §6 and docs/GDD.md §5. */
 const COLLAPSE_WELLBEING_FLOOR = 15;
@@ -232,7 +272,6 @@ const initialSession = () => ({
   visitorLeaveAt: 0,
   weather: 'clear' as WeatherKind,
   weatherMinutes: 0,
-  visitorCheckMinutes: 0,
   friendMenuOpen: false,
   collaborationMinutes: 0,
   guitarNotesMinutes: 0,
@@ -244,11 +283,47 @@ const initialSession = () => ({
   npc2LeaveAt: 0,
   npc2Target: { x: 880, y: 560 } as Point,
   npc2PauseUntil: 0,
+  elevatorTo: null as string | null,
+  elevatorArrivesAt: 0,
+  thought: null as Thought | null,
+  thoughtCooldown: 40,
   selectedObjectId: undefined as string | undefined,
   activeVideoId: undefined as string | undefined,
   ending: null as Ending,
   collapseMinutes: 0,
 });
+
+/**
+ * Ambient thought bubbles fire on a long cooldown (~50–110 game-minutes) and never repeat the previous
+ * line back to back, so silence stays the default. A bubble lives for 3 game-minutes, which the
+ * renderer fades in and out over roughly 2–4 real seconds.
+ */
+const THOUGHT_LIFETIME = 3;
+function nextThought(state: GameState, gameMinutes: number): { thought: Thought | null; thoughtCooldown: number } {
+  const cooldown = state.thoughtCooldown - gameMinutes;
+  if (cooldown > 0) {
+    // Retire the current bubble once it has had its moment on screen.
+    const expired = state.thought && cooldown < state.thoughtCooldown - THOUGHT_LIFETIME ? null : state.thought;
+    return { thought: expired, thoughtCooldown: cooldown };
+  }
+  const pools: (readonly string[])[] = [THOUGHTS.idle];
+  if (state.workingOnMusic) pools.push(THOUGHTS.working, THOUGHTS.music);
+  if (state.friendActivity === 'tune') pools.push(THOUGHTS.music);
+  if (state.friendActivity === 'video-game' || state.activeVideoId === 'switch') pools.push(THOUGHTS.gaming);
+  if (state.activeVideoId === 'anime') pools.push(THOUGHTS.anime);
+  if (state.smokingMinutes > 0) pools.push(THOUGHTS.smoking);
+  if (state.weather === 'rain' || state.weather === 'hail') pools.push(THOUGHTS.rain);
+  if (state.needs.hunger < 35) pools.push(THOUGHTS.hungry);
+  if (state.needs.energy < 30) pools.push(THOUGHTS.sleepy);
+  if (state.visitorActive && state.visitorPhase === 'arriving') pools.push(THOUGHTS.friend);
+  // 4:30–6:00 AM: the sun is actually coming up outside.
+  if (state.clock.minuteOfDay >= 270 && state.clock.minuteOfDay <= 360) pools.push(THOUGHTS.sunrise);
+  if (state.crystal === 'green') pools.push(THOUGHTS.goodMood);
+  if (state.crystal === 'red') pools.push(THOUGHTS.lowMood);
+  let text = pickThought(pools);
+  if (text === state.thought?.text) text = pickThought(pools); // one reroll keeps repeats rare
+  return { thought: { text, n: (state.thought?.n ?? 0) + 1 }, thoughtCooldown: 50 + Math.random() * 60 };
+}
 
 function applyNeedChange(needs: ProducerNeeds, changes: NeedChange): ProducerNeeds {
   return Object.fromEntries(Object.entries(needs).map(([key, value]) => [key, clamp(value + (changes[key as keyof ProducerNeeds] ?? 0))])) as ProducerNeeds;
@@ -258,7 +333,15 @@ export const useGameStore = create<GameState>((set) => ({
   phase: 'booting',
   ...initialSession(),
   setPhase: (phase) => set({ phase }),
-  hydrateSession: (snapshot) => set(snapshot),
+  hydrateSession: (snapshot) => set((state) => {
+    const next = { ...state, ...snapshot } as GameState;
+    // Safety net: a save written inside the car with no ride in flight would strand the player in a
+    // room with no exit, so put them back in the studio instead.
+    if (next.activeLocationId === 'elevator' && !next.elevatorTo) {
+      return { ...snapshot, activeLocationId: 'apartment-studio', playerPosition: { ...ENTRANCE_POSITION }, moveTarget: null };
+    }
+    return snapshot;
+  }),
   setDawOpen: (dawOpen) => set({ dawOpen, workingOnMusic: dawOpen ? false : false }),
   setWorkingOnMusic: (workingOnMusic) => set((state) => ({ workingOnMusic: state.dawOpen ? workingOnMusic : false })),
   pause: () => set((state) => (state.phase === 'playing' ? { phase: 'paused' } : state)),
@@ -280,7 +363,7 @@ export const useGameStore = create<GameState>((set) => ({
   setEntranceOpen: (entranceOpen) => set((state) => (state.entranceOpen === entranceOpen ? state : { entranceOpen })),
   stepMovement: (deltaMs) => set((state) => {
     if (state.phase !== 'playing' || !state.moveTarget) return state;
-    const step = WALK_SPEED * (state.running ? 1.85 : 1) * (deltaMs / 1000);
+    const step = WALK_SPEED * (state.running ? RUN_MULTIPLIER : 1) * (deltaMs / 1000);
     const dx = state.moveTarget.x - state.playerPosition.x;
     const dy = state.moveTarget.y - state.playerPosition.y;
     const distance = Math.hypot(dx, dy);
@@ -301,6 +384,8 @@ export const useGameStore = create<GameState>((set) => ({
   openFriendMenu: () => set((state) => state.visitorActive && state.visitorPhase === 'staying' ? { friendMenuOpen: true } : state),
   closeFriendMenu: () => set({ friendMenuOpen: false }),
   returnToStudio: () => set({ activeLocationId: 'apartment-studio', playerPosition: { x: 640, y: 510 }, moveTarget: null, selectedObjectId: undefined }),
+  /** The lobby's call button. Raises the same confirmation the studio's button does, so the ride is symmetric. */
+  callElevator: () => set((state) => (state.elevatorTo || state.phase !== 'playing' ? state : { prompt: ELEVATOR_PROMPT })),
   doFriendActivity: (kind) => set((state) => {
     if (!state.visitorActive || state.visitorPhase !== 'staying') return state;
     const activities: Record<FriendActivity, { needs: NeedChange; emotions: EmotionalEffect[]; collaboration?: number }> = {
@@ -349,17 +434,33 @@ export const useGameStore = create<GameState>((set) => ({
     const baseGraph = wellnessResolve
       ? resolveEmotionGraph(weatherGraph, [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }, { node: 'burnout', direction: 'down' }, { node: 'loneliness', direction: 'down' }])
       : weatherGraph;
-    const visitorCheckMinutes = state.visitorCheckMinutes + gameMinutes;
-    const randomVisit = !state.visitorActive && visitorCheckMinutes >= 150 && Math.random() < 0.28;
+    // Friends never turn up on their own — both NPCs arrive only when the producer invites them
+    // from the bedside phone, so an empty room stays empty until that choice is made.
+    const elapsedMs = state.elapsedMs + deltaMs;
+    const elevatorArrived = state.elevatorTo !== null && elapsedMs >= state.elevatorArrivesAt;
+    // Stepping out and coming back costs a little energy and takes the edge off the stress.
+    const outsideBuff = elevatorArrived && state.elevatorTo === 'apartment-studio';
+    if (outsideBuff) needs = applyNeedChange(needs, { energy: -4, social: 3 });
+    const outsideStressRelief = outsideBuff ? 9 : 0;
+    const elevatorFrame = elevatorArrived
+      ? {
+        activeLocationId: state.elevatorTo as string,
+        elevatorTo: null,
+        elevatorArrivesAt: 0,
+        playerPosition: state.elevatorTo === 'apartment-studio' ? { ...ENTRANCE_POSITION } : { x: 640, y: 620 },
+        moveTarget: null as MoveTarget,
+        selectedObjectId: undefined,
+      }
+      : {};
+    const thoughtFrame = nextThought(state, gameMinutes);
     const base = {
-      elapsedMs: state.elapsedMs + deltaMs,
+      elapsedMs,
       needs,
       clock: { day: state.clock.day + dayCount, minuteOfDay: totalMinutes % 720 },
-      stress: clamp(state.stress + stressDrift * gameMinutes),
+      stress: clamp(state.stress + stressDrift * gameMinutes - outsideStressRelief),
       wellnessMinutes: wellnessResolve ? 0 : wellnessAccum,
       weather,
       weatherMinutes: weatherChanged ? 0 : weatherMinutes,
-      visitorCheckMinutes: randomVisit || visitorCheckMinutes >= 150 ? 0 : visitorCheckMinutes,
       collaborationMinutes: Math.max(0, state.collaborationMinutes - gameMinutes),
       guitarNotesMinutes: Math.max(0, state.guitarNotesMinutes - gameMinutes),
       smokingMinutes: Math.max(0, state.smokingMinutes - gameMinutes),
@@ -367,7 +468,8 @@ export const useGameStore = create<GameState>((set) => ({
       friendActivityMinutes: Math.max(0, state.friendActivityMinutes - gameMinutes),
       npc2Active: state.npc2Active && state.elapsedMs < state.npc2LeaveAt,
       workingOnMusic: state.friendActivity === 'tune' && state.friendActivityMinutes <= gameMinutes ? false : state.workingOnMusic,
-      ...(randomVisit ? { visitorActive: true, visitorPhase: 'arriving' as VisitorPhase, visitorPos: { ...ENTRANCE_POSITION }, visitorLeaveAt: state.elapsedMs + 120000 } : {}),
+      ...thoughtFrame,
+      ...elevatorFrame,
     };
     // Session-frame outcome: a win halts the run immediately; sustained rock-bottom wellbeing collapses it.
     const sessionFrame = (finalNeeds: ProducerNeeds, won: boolean) => {
@@ -451,7 +553,7 @@ export const useGameStore = create<GameState>((set) => ({
         stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     if (interaction.action === 'entrance') {
-      return { entranceOpen: true, prompt: ENTRANCE_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+      return { entranceOpen: true, prompt: ELEVATOR_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     // Any other interaction stands the producer up. The entrance swings its door open.
     const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
@@ -463,7 +565,7 @@ export const useGameStore = create<GameState>((set) => ({
     if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
     const updatedNeeds = applyNeedChange(state.needs, interaction.changes);
     const updatedScore = weightedEmotionalScore(updatedNeeds, { inspiration: inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
-    return { needs: updatedNeeds, activeVideoId: interaction.id, guitarNotesMinutes, smokingMinutes: interaction.id === 'cigarettes' ? 25 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+    return { needs: updatedNeeds, activeVideoId: interaction.id, guitarNotesMinutes, smokingMinutes: interaction.id === 'cigarettes' ? 10 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
   }),
   dismissPrompt: () => set({ prompt: null }),
   choose: (kind) => set((state) => {
@@ -482,8 +584,21 @@ export const useGameStore = create<GameState>((set) => ({
     if (kind === 'doom-scroll') {
       return { prompt: null, lyingDown: true, scrolling: true, seated: false, playerPosition: LIE_POSITION, moveTarget: null, needs: applyNeedChange(state.needs, { social: -8 }), stress: clamp(state.stress + 6), lastInteraction: interactionById.doomscroll ?? state.lastInteraction };
     }
-    if (kind === 'leave-room') {
-      return { prompt: null, activeLocationId: 'apartment-corridor', playerPosition: { x: 640, y: 510 }, moveTarget: null, entranceOpen: false, selectedObjectId: undefined, needs: applyNeedChange(state.needs, { social: 3, energy: -1 }) };
+    if (kind === 'elevator-ride') {
+      // Step inside; the ride itself plays out in `tick`, which lands the producer on the other floor.
+      const destination = state.activeLocationId === 'apartment-studio' ? 'apartment-lobby' : 'apartment-studio';
+      return {
+        prompt: null,
+        activeLocationId: 'elevator',
+        elevatorTo: destination,
+        elevatorArrivesAt: state.elapsedMs + ELEVATOR_RIDE_MS,
+        playerPosition: { x: 640, y: 560 },
+        moveTarget: null,
+        entranceOpen: false,
+        seated: false,
+        lyingDown: false,
+        selectedObjectId: undefined,
+      };
     }
     // dismiss / close-fridge
     return { prompt: null, fridgeOpen: false };

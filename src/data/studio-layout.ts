@@ -3,6 +3,8 @@ export type StudioObject = { id: string; x: number; y: number; width: number; he
 /** Original bedroom-studio map. Coordinates preserve the required window → desk → bed/door composition. */
 export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'window', x: 120, y: 70, width: 330, height: 132, color: '#31597a', shape: 'window' },
+  // Second window on the bed side of the room, mounted flat against the right wall.
+  { id: 'window2', x: 1168, y: 170, width: 100, height: 190, color: '#31597a', shape: 'window', rotationY: -Math.PI / 2 },
   { id: 'posters', x: 460, y: 82, width: 100, height: 78, color: '#6d4056' },
   { id: 'posters2', x: 635, y: 84, width: 100, height: 78, color: '#3a5a6d' },
   { id: 'posters3', x: 788, y: 80, width: 100, height: 78, color: '#5c4a2e' },

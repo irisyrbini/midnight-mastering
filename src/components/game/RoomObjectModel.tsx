@@ -209,7 +209,7 @@ function RainCurtain({ hail }: { hail: boolean }) {
   </group>;
 }
 
-function WindowUnit() {
+function WindowUnit({ width = 3.8 }: { width?: number }) {
   const open = useGameStore((state) => state.windowOpen);
   const minute = useGameStore((state) => Math.floor(state.clock.minuteOfDay));
   const weather = useGameStore((state) => state.weather);
@@ -224,20 +224,69 @@ function WindowUnit() {
     .getStyle();
   useFrame(() => { if (pane.current) pane.current.rotation.x += ((open ? -0.5 : 0) - pane.current.rotation.x) * 0.14; });
   return <group position={[0, 2.2, 0]}>
-    <mesh><boxGeometry args={[3.8, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
-    <mesh position={[0, 0, 0.05]}><planeGeometry args={[3.5, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
+    <mesh><boxGeometry args={[width, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    <mesh position={[0, 0, 0.05]}><planeGeometry args={[width - 0.3, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
     {/* The sun clears the horizon from 4:30 AM and climbs; it is deepest orange through the golden hour. */}
     {daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, 0.12]}><sphereGeometry args={[0.16 + daylight * 0.1, 16, 12]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} /></mesh>}
+    <group scale={[width / 3.8, 1, 1]}>
     {daylight < 0.42 && <group position={[0, 0.2, 0.12]}><Sparkles count={46} scale={[3.2, 1.9, 0.25]} size={2.6} speed={0.35} color="#dfe8ff" /></group>}
     {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, 0.1]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
     {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, 0.09]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
     {wet && <RainCurtain hail={weather === 'hail'} />}
+    </group>
     {/* openable glass pane, hinged at the bottom */}
     <group ref={pane} position={[0, -0.75, 0.13]}>
-      <mesh position={[0, 0.75, 0]}><boxGeometry args={[2.5, 1.5, 0.04]} /><meshStandardMaterial color="#6f9fc0" transparent opacity={0.22} metalness={0.3} roughness={0.1} /></mesh>
+      <mesh position={[0, 0.75, 0]}><boxGeometry args={[width - 1.3, 1.5, 0.04]} /><meshStandardMaterial color="#6f9fc0" transparent opacity={0.22} metalness={0.3} roughness={0.1} /></mesh>
       <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[0.05, 1.5, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
-      <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[2.5, 0.05, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
+      <mesh position={[0, 0.75, 0.02]}><boxGeometry args={[width - 1.3, 0.05, 0.05]} /><meshStandardMaterial color="#16202e" /></mesh>
     </group>
+  </group>;
+}
+
+const BEDDING_PINK = '#f2c3ce'; // soft pastel pink duvet
+const BEDDING_GREEN = '#7fae86'; // the stripe running across it
+const BED_WOOD = '#7a5a41';
+
+/**
+ * A complete bed rather than a bare mattress: a wooden frame on legs, a slatted headboard, a mattress,
+ * two pillows, and a pastel-pink duvet with green stripes folded back over the foot.
+ * The head of the bed is at −x, matching where the producer's head rests when lying down.
+ */
+function Bed() {
+  return <group>
+    {/* Frame and legs. */}
+    <mesh position={[0, 0.3, 0]} castShadow receiveShadow><boxGeometry args={[2.34, 0.22, 1.72]} /><meshStandardMaterial color={BED_WOOD} roughness={0.75} /></mesh>
+    {[[-1.05, -0.72], [1.05, -0.72], [-1.05, 0.72], [1.05, 0.72]].map(([lx, lz], i) => (
+      <mesh key={i} position={[lx, 0.1, lz]} castShadow><boxGeometry args={[0.15, 0.2, 0.15]} /><meshStandardMaterial color="#5b4130" roughness={0.8} /></mesh>
+    ))}
+    {/* Headboard: a panel with vertical slats. */}
+    <group position={[-1.18, 0, 0]}>
+      <mesh position={[0, 0.82, 0]} castShadow><boxGeometry args={[0.14, 1.1, 1.72]} /><meshStandardMaterial color={BED_WOOD} roughness={0.72} /></mesh>
+      {[-0.6, -0.3, 0, 0.3, 0.6].map((sz) => (
+        <mesh key={sz} position={[0.05, 0.86, sz]}><boxGeometry args={[0.06, 0.82, 0.12]} /><meshStandardMaterial color="#947051" roughness={0.7} /></mesh>
+      ))}
+      <mesh position={[0, 1.42, 0]} castShadow><boxGeometry args={[0.2, 0.14, 1.84]} /><meshStandardMaterial color="#5b4130" roughness={0.75} /></mesh>
+    </group>
+    {/* Footboard, lower than the headboard. */}
+    <mesh position={[1.18, 0.56, 0]} castShadow><boxGeometry args={[0.14, 0.56, 1.72]} /><meshStandardMaterial color={BED_WOOD} roughness={0.72} /></mesh>
+    {/* Mattress. */}
+    <mesh position={[0, 0.5, 0]} castShadow receiveShadow><boxGeometry args={[2.18, 0.22, 1.6]} /><meshStandardMaterial color="#efe9dd" roughness={0.9} /></mesh>
+    {/* Pastel-pink duvet with green stripes running across the bed. */}
+    <mesh position={[0.16, 0.66, 0]} castShadow><boxGeometry args={[1.84, 0.14, 1.62]} /><meshStandardMaterial color={BEDDING_PINK} roughness={0.95} /></mesh>
+    {[-0.34, 0.18, 0.7].map((sx) => (
+      <mesh key={sx} position={[sx, 0.735, 0]}><boxGeometry args={[0.2, 0.005, 1.63]} /><meshStandardMaterial color={BEDDING_GREEN} roughness={0.95} /></mesh>
+    ))}
+    {/* Turned-back top sheet at the head end. */}
+    <mesh position={[-0.82, 0.68, 0]} castShadow><boxGeometry args={[0.34, 0.1, 1.62]} /><meshStandardMaterial color="#fbeef1" roughness={0.95} /></mesh>
+    {/* Two pillows side by side against the headboard. */}
+    {[-0.36, 0.36].map((pz) => (
+      <mesh key={pz} position={[-0.82, 0.78, pz]} rotation={[0, 0, 0.06]} castShadow>
+        <boxGeometry args={[0.5, 0.18, 0.66]} /><meshStandardMaterial color="#fdf6f2" roughness={0.96} />
+      </mesh>
+    ))}
+    {[-0.36, 0.36].map((pz) => (
+      <mesh key={`s${pz}`} position={[-0.82, 0.875, pz]}><boxGeometry args={[0.5, 0.005, 0.16]} /><meshStandardMaterial color={BEDDING_GREEN} roughness={0.95} /></mesh>
+    ))}
   </group>;
 }
 
@@ -358,6 +407,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'redBull': return <mesh position={[0, DESK_Y + 0.24, 0]} castShadow><cylinderGeometry args={[0.13, 0.13, 0.46, 16]} /><meshStandardMaterial color="#d05e55" metalness={0.3} roughness={0.4} /></mesh>;
 
     case 'window': return <WindowUnit />;
+    // Second window on the bed side; narrower, and it reads the same day-cycle and weather state.
+    case 'window2': return <WindowUnit width={2.6} />;
 
     case 'posters': return <Poster top="#b8708a" bottom="#4f6f8c" />;
     case 'posters2': return <Poster top="#5a86a0" bottom="#2f4a5a" />;
@@ -394,12 +445,7 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'acousticGuitar': return <Guitar body="#ba8653" />;
     case 'electricGuitar': return <Guitar body="#e9e8df" solid />;
 
-    case 'bed': return <group>
-      <mesh position={[0, 0.25, 0]} castShadow receiveShadow><boxGeometry args={[2.2, 0.4, 1.6]} /><meshStandardMaterial color="#54667d" /></mesh>
-      {/* Horizontal pillow across the head of the mattress. */}
-      <mesh position={[-0.68, 0.55, -0.42]} castShadow><boxGeometry args={[1.12, 0.24, 0.42]} /><meshStandardMaterial color="#c9c4b8" /></mesh>
-      <mesh position={[0.3, 0.5, 0.12]} castShadow><boxGeometry args={[1.44, 0.16, 1.44]} /><meshStandardMaterial color="#3f5063" /></mesh>
-    </group>;
+    case 'bed': return <Bed />;
 
     case 'miniFridge': return <Fridge />;
 

@@ -1,20 +1,27 @@
 'use client';
 
-import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber';
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Html, Sparkles, OrbitControls } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useEffect, useMemo, useRef, type ComponentRef, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { STUDIO_OBJECTS, type StudioObject } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
-import { useGameStore } from '@/store/game-store';
+import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, useGameStore } from '@/store/game-store';
 import { RoomObjectModel, DESK_Y, DESKTOP_IDS, TABLE2_Y, TABLE_IDS } from './RoomObjectModel';
-import { playModularPatch } from '@/game/audio/sfx';
+import { playElevatorDing, playModularPatch } from '@/game/audio/sfx';
 import { dayCycle } from '@/game/simulation/day-cycle';
 
-const toWorld = (x: number, y: number): [number, number] => [(x - 640) / 90, (y - 510) / 90];
+/**
+ * Logical layout units per world unit. Lowering this spreads the same layout across more floor, which
+ * is how the studio was enlarged: furniture keeps its modelled size while the gaps between pieces (and
+ * the walls, floor and ceiling below, which all scale by ROOM_SCALE) grow around it.
+ */
+const UNITS_PER_WORLD = 72;
+const ROOM_SCALE = 90 / UNITS_PER_WORLD; // room shell grows by the same factor the layout spreads
+const toWorld = (x: number, y: number): [number, number] => [(x - 640) / UNITS_PER_WORLD, (y - 510) / UNITS_PER_WORLD];
 /** Inverse of toWorld: a floor click's world point back to the logical room coordinate the sim uses. */
-const toLogical = (worldX: number, worldZ: number) => ({ x: worldX * 90 + 640, y: worldZ * 90 + 510 });
+const toLogical = (worldX: number, worldZ: number) => ({ x: worldX * UNITS_PER_WORLD + 640, y: worldZ * UNITS_PER_WORLD + 510 });
 const crystalColor = { red: '#d84f59', yellow: '#e6c34c', green: '#62cf86' } as const;
 
 /** Distinguish a click from an orbit-drag so releasing a rotation over an object doesn't select or use it. */
@@ -25,7 +32,7 @@ const isDrag = (event: MouseEvent) => (pointerDownAt ? Math.hypot(event.clientX 
 function CameraRig() {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   useFrame(() => { controls.current?.update(); });
-  return <OrbitControls ref={controls} makeDefault target={[0, 1.2, -1]} enablePan={false} enableZoom minDistance={7} maxDistance={24} minPolarAngle={Math.PI * 0.16} maxPolarAngle={Math.PI * 0.46} enableDamping dampingFactor={0.12} />;
+  return <OrbitControls ref={controls} makeDefault target={[0, 1.2, -1]} enablePan={false} enableZoom minDistance={7 * ROOM_SCALE} maxDistance={24 * ROOM_SCALE} minPolarAngle={Math.PI * 0.16} maxPolarAngle={Math.PI * 0.46} enableDamping dampingFactor={0.12} />;
 }
 
 function EmotionalCrystal({ y }: { y: number }) {
@@ -54,9 +61,11 @@ type GroovePose = { hipY: number; shoulderY: number; armX: number; armZ: number 
 
 /**
  * The "vibing to the track" loop both producers play while a tune is being built: the upper body rocks
- * forward and back on the beat, the arms swing, the forearms sweep side to side, the shoulders lift
- * alternately and the head nods — energetic but relaxed. `grooveOffset` keeps the two figures off each
- * other's phase so they read as two people, not a mirrored pair.
+ * forward and back on the beat, the arms swing side to side, the shoulders lift alternately and the
+ * head nods. Every few bars the groove escalates into a **hype burst** — both hands punch up above
+ * shoulder height as if celebrating the drop — then settles back into the low swing, so the loop
+ * alternates between low and high arm work instead of repeating one motion.
+ * `grooveOffset` keeps the two figures off each other's phase so they read as two people.
  */
 function useGroove(active: boolean, refs: GrooveRefs, pose: GroovePose, grooveOffset: number) {
   const amount = useRef(0);
@@ -65,26 +74,33 @@ function useGroove(active: boolean, refs: GrooveRefs, pose: GroovePose, grooveOf
     const k = amount.current;
     if (k < 0.002) return;
     const t = clock.elapsedTime + grooveOffset;
-    const beat = t * 5.4;
+    const beat = t * 5.6;
     const nodBurst = Math.pow(Math.max(0, Math.sin(t * 0.4)), 8); // an emphatic nod every few bars
+    // 0 → low swing, 1 → both hands up. Rides a slow wave so the hype arrives and leaves smoothly.
+    const hype = Math.pow(Math.max(0, Math.sin(t * 0.28)), 6);
     if (refs.torso.current) {
-      refs.torso.current.rotation.x = Math.sin(beat) * 0.15 * k;
-      refs.torso.current.rotation.z = Math.sin(beat * 0.5) * 0.06 * k;
-      refs.torso.current.position.y = pose.hipY + Math.abs(Math.sin(beat)) * 0.04 * k;
+      // Rocks harder in the low groove; straightens up and lifts as the hands go over the shoulders.
+      refs.torso.current.rotation.x = Math.sin(beat) * (0.22 - hype * 0.14) * k;
+      refs.torso.current.rotation.z = Math.sin(beat * 0.5) * 0.08 * k;
+      refs.torso.current.position.y = pose.hipY + (Math.abs(Math.sin(beat)) * 0.06 + hype * 0.05) * k;
     }
     if (refs.head.current) {
-      refs.head.current.rotation.x = (Math.sin(beat) * 0.07 + nodBurst * Math.sin(beat * 2) * 0.24) * k;
-      refs.head.current.rotation.y = Math.sin(beat * 0.33) * 0.15 * k;
+      refs.head.current.rotation.x = (Math.sin(beat) * 0.1 + nodBurst * Math.sin(beat * 2) * 0.3 - hype * 0.22) * k; // chin lifts on the hype
+      refs.head.current.rotation.y = Math.sin(beat * 0.33) * 0.18 * k;
     }
     const swingArm = (upper: THREE.Group | null, fore: THREE.Group | null, side: number) => {
       if (upper) {
-        upper.rotation.x = pose.armX + (-0.5 + Math.sin(beat) * 0.38 * side) * k;
-        upper.rotation.z = pose.armZ * side + (0.3 + Math.sin(beat * 0.5) * 0.18) * k * side;
-        upper.position.y = pose.shoulderY + Math.sin(beat + (side > 0 ? Math.PI : 0)) * 0.022 * k;
+        // Low groove swings the arm forward/back; the hype rotates it up and out past the shoulder.
+        const low = -0.6 + Math.sin(beat) * 0.5 * side;
+        const high = -2.5 + Math.sin(beat * 2) * 0.35; // negative X = raised in front of / above the head
+        upper.rotation.x = pose.armX + (low * (1 - hype) + high * hype) * k;
+        upper.rotation.z = pose.armZ * side + ((0.34 + Math.sin(beat * 0.5) * 0.22) * (1 - hype) + (0.75 + Math.sin(beat * 2) * 0.16) * hype) * k * side;
+        upper.position.y = pose.shoulderY + (Math.sin(beat + (side > 0 ? Math.PI : 0)) * 0.03 + hype * 0.04) * k;
       }
       if (fore) {
-        fore.rotation.x = -(0.55 + Math.sin(beat) * 0.25) * k;
-        fore.rotation.z = Math.sin(beat + side * 0.6) * 0.5 * k * side;
+        // Forearms sweep left/right on the beat, and straighten out overhead during the hype.
+        fore.rotation.x = -(0.62 + Math.sin(beat) * 0.32) * (1 - hype) * k;
+        fore.rotation.z = (Math.sin(beat + side * 0.6) * 0.6 * (1 - hype) + Math.sin(beat * 2) * 0.24 * hype) * k * side;
       }
     };
     swingArm(refs.armL.current, refs.foreL.current, -1);
@@ -256,11 +272,14 @@ function SmokePuffs({ emitter }: { emitter: (emit: (x: number, y: number, z: num
   </group>;
 }
 
+// One drag runs about five seconds end to end, which is exactly how long `smokingMinutes` lasts —
+// so the cigarette is raised, drawn on, exhaled and lowered once, then put away.
 const SMOKE_RAISE = 1.1; // hand travels up to the mouth
 const SMOKE_INHALE = 0.9; // held at the lips, drawing
-const SMOKE_LOWER = 1.0; // hand comes back down while exhaling
-const SMOKE_REST = 2.6; // held at the side between drags
-const SMOKE_CYCLE = SMOKE_RAISE + SMOKE_INHALE + SMOKE_LOWER + SMOKE_REST;
+const SMOKE_HOLD = 0.5; // breath held before letting go
+const SMOKE_LOWER = 1.2; // hand comes back down while exhaling
+const SMOKE_REST = 1.3; // held at the side afterwards
+const SMOKE_CYCLE = SMOKE_RAISE + SMOKE_INHALE + SMOKE_HOLD + SMOKE_LOWER + SMOKE_REST;
 
 /**
  * Cinematic smoking loop: raise the cigarette to the mouth, hold briefly while inhaling (the tip glows),
@@ -270,21 +289,28 @@ function SmokingEffect({ hipY }: { hipY: number }) {
   const smoking = useGameStore((state) => state.smokingMinutes > 0);
   const arm = useRef<THREE.Group>(null);
   const ember = useRef<THREE.Mesh>(null);
-  const phase = useRef(SMOKE_RAISE + SMOKE_INHALE + SMOKE_LOWER); // start at rest, first drag comes shortly
+  const emberLight = useRef<THREE.PointLight>(null);
+  const phase = useRef(0); // one pass through the cycle, starting from the hand at the side
   const exhale = useRef(0);
   const tipTrickle = useRef(0);
   const smoothing = (from: number, to: number, t: number) => from + (to - from) * (t * t * (3 - 2 * t));
   const restPos: [number, number, number] = [0.34, hipY + 0.16, -0.16];
   const mouthPos: [number, number, number] = [0.13, hipY + 0.92, -0.24];
+  // Reset to the start of the drag each time a fresh cigarette is lit.
+  useEffect(() => { if (smoking) { phase.current = 0; exhale.current = 0; } }, [smoking]);
   useFrame((_, delta) => {
     if (!smoking || !arm.current) return;
-    phase.current = (phase.current + delta) % SMOKE_CYCLE;
+    // Clamps rather than wraps: the animation plays through once and finishes with the hand lowered.
+    phase.current = Math.min(phase.current + delta, SMOKE_CYCLE);
     const t = phase.current;
     let lift = 0; // 0 = hand at the side, 1 = cigarette at the lips
     let drawing = false;
+    const inhaleEnd = SMOKE_RAISE + SMOKE_INHALE;
+    const holdEnd = inhaleEnd + SMOKE_HOLD;
     if (t < SMOKE_RAISE) lift = smoothing(0, 1, t / SMOKE_RAISE);
-    else if (t < SMOKE_RAISE + SMOKE_INHALE) { lift = 1; drawing = true; }
-    else if (t < SMOKE_RAISE + SMOKE_INHALE + SMOKE_LOWER) lift = smoothing(1, 0, (t - SMOKE_RAISE - SMOKE_INHALE) / SMOKE_LOWER);
+    else if (t < inhaleEnd) { lift = 1; drawing = true; }
+    else if (t < holdEnd) lift = 1; // breath held, cigarette still at the lips
+    else if (t < holdEnd + SMOKE_LOWER) lift = smoothing(1, 0, (t - holdEnd) / SMOKE_LOWER);
     arm.current.position.set(
       restPos[0] + (mouthPos[0] - restPos[0]) * lift,
       restPos[1] + (mouthPos[1] - restPos[1]) * lift,
@@ -292,12 +318,15 @@ function SmokingEffect({ hipY }: { hipY: number }) {
     );
     arm.current.rotation.z = -0.35 + lift * 0.95; // wrist turns in as it reaches the mouth
     arm.current.rotation.x = lift * -0.45;
+    // The tip burns bright red while drawing, and idles at a dull ember otherwise.
+    const glow = drawing ? 5.5 : 2.2;
     if (ember.current) {
       const material = ember.current.material as THREE.MeshStandardMaterial;
-      material.emissiveIntensity += ((drawing ? 4.2 : 1.5) - material.emissiveIntensity) * Math.min(1, delta * 6);
+      material.emissiveIntensity += (glow - material.emissiveIntensity) * Math.min(1, delta * 6);
     }
-    // The exhale window opens the moment the hand starts back down.
-    exhale.current = t >= SMOKE_RAISE + SMOKE_INHALE && t < SMOKE_RAISE + SMOKE_INHALE + 0.85 ? exhale.current + delta : 0;
+    if (emberLight.current) emberLight.current.intensity += ((drawing ? 0.9 : 0.35) - emberLight.current.intensity) * Math.min(1, delta * 6);
+    // The exhale window opens the moment the held breath is released.
+    exhale.current = t >= holdEnd && t < holdEnd + 1.0 ? exhale.current + delta : 0;
     tipTrickle.current += delta;
   });
   if (!smoking) return null;
@@ -310,21 +339,50 @@ function SmokingEffect({ hipY }: { hipY: number }) {
       emit(hand.position.x, hand.position.y + 0.16, hand.position.z, 0.35);
     }
     // Exhale: a slower, wider cloud leaving the mouth.
-    if (exhale.current > 0 && exhale.current < 0.85 && Math.random() < delta * 26) {
+    if (exhale.current > 0 && exhale.current < 1.0 && Math.random() < delta * 26) {
       emit(0.06, hipY + 0.9, -0.3, 1);
     }
   };
   return <group>
     <group ref={arm} position={restPos} rotation={[0, 0, -0.35]}>
-      <mesh><cylinderGeometry args={[0.017, 0.017, 0.26, 8]} /><meshStandardMaterial color="#f0e2c2" /></mesh>
-      <mesh ref={ember} position={[0, 0.15, 0]}><cylinderGeometry args={[0.019, 0.019, 0.045, 8]} /><meshStandardMaterial color="#ff7a35" emissive="#ff5e1a" emissiveIntensity={1.5} toneMapped={false} /></mesh>
+      {/* Plain white paper stick with a buff filter, and a red coal burning at the tip. */}
+      <mesh><cylinderGeometry args={[0.017, 0.017, 0.26, 10]} /><meshStandardMaterial color="#f7f7f4" roughness={0.85} /></mesh>
+      <mesh position={[0, -0.1, 0]}><cylinderGeometry args={[0.0175, 0.0175, 0.07, 10]} /><meshStandardMaterial color="#c9a15e" roughness={0.9} /></mesh>
+      <mesh ref={ember} position={[0, 0.145, 0]}><cylinderGeometry args={[0.018, 0.018, 0.035, 10]} /><meshStandardMaterial color="#ff3b18" emissive="#ff2a0c" emissiveIntensity={2.2} toneMapped={false} /></mesh>
+      <mesh position={[0, 0.125, 0]}><cylinderGeometry args={[0.0182, 0.0182, 0.02, 10]} /><meshStandardMaterial color="#4a3b34" roughness={1} /></mesh>
+      <pointLight ref={emberLight} position={[0, 0.15, 0]} color="#ff5a26" intensity={0.35} distance={0.7} />
     </group>
     <SmokePuffs emitter={emitter} />
   </group>;
 }
 
+/**
+ * Ambient thought bubble. The producer never speaks — this is mood, not dialogue: a tiny symbol
+ * (rarely a word) that fades in above the head, holds for a couple of seconds and fades out again.
+ * The store picks the content on a long cooldown; this only owns the fade.
+ */
+function ThoughtBubble({ y }: { y: number }) {
+  const thought = useGameStore((state) => state.thought);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!thought) { setVisible(false); return; }
+    setVisible(true);
+    const timer = window.setTimeout(() => setVisible(false), 2600);
+    return () => window.clearTimeout(timer);
+  }, [thought]);
+  if (!thought) return null;
+  return <Html center position={[0.55, y, 0]} distanceFactor={9} zIndexRange={[20, 0]}>
+    <div
+      className="pointer-events-none select-none rounded-2xl bg-paper/90 px-3 py-1.5 text-[15px] leading-none text-night shadow-lg transition-all duration-700 ease-out"
+      style={{ opacity: visible ? 1 : 0, transform: `translateY(${visible ? 0 : 6}px) scale(${visible ? 1 : 0.85})` }}
+    >
+      {thought.text}
+    </div>
+  </Html>;
+}
+
 /** A stylised human silhouette. Swaps between standing/walking, seated and lying poses. */
-function Player() {
+function Player({ crystal = true }: { crystal?: boolean } = {}) {
   const position = useGameStore((state) => state.playerPosition);
   const seated = useGameStore((state) => state.seated);
   const lyingDown = useGameStore((state) => state.lyingDown);
@@ -344,7 +402,8 @@ function Player() {
         <mesh position={[0, 0, 0.02]} rotation={[-0.6, 0, 0]}><planeGeometry args={[0.2, 0.38]} /><meshStandardMaterial color="#3a4a70" emissive="#5468a0" emissiveIntensity={1.3} toneMapped={false} /></mesh>
         <pointLight color="#6a7fb8" intensity={0.7} distance={1.2} />
       </group>}
-      <EmotionalCrystal y={1.5} />
+      {crystal && <EmotionalCrystal y={1.5} />}
+      <ThoughtBubble y={1.9} />
     </group>;
   }
   if (seated) {
@@ -355,13 +414,15 @@ function Player() {
       {friendActivity === 'vodka' && <mesh position={[0.24, 1.05, -0.42]}><cylinderGeometry args={[0.08, 0.1, 0.52, 12]} /><meshStandardMaterial color="#52758e" transparent opacity={0.8} /></mesh>}
       {friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
       <SmokingEffect hipY={0.62} />
-      <EmotionalCrystal y={2.22} />
+      {crystal && <EmotionalCrystal y={2.22} />}
+      <ThoughtBubble y={2.62} />
     </group>;
   }
   return <group position={[x, 0, z]}>
     <WalkingFigure />
     <SmokingEffect hipY={0.82} />
-    <EmotionalCrystal y={2.72} />
+    {crystal && <EmotionalCrystal y={2.72} />}
+    <ThoughtBubble y={3.12} />
   </group>;
 }
 
@@ -413,6 +474,7 @@ function Visitor() {
   const selectObject = useGameStore((state) => state.selectObject);
   const friendActivity = useGameStore((state) => state.friendActivity);
   const friendMenuOpen = useGameStore((state) => state.friendMenuOpen);
+  const selected = useGameStore((state) => state.selectedObjectId === 'visitor');
   const sipTimer = useRef(3.5);
   const sipProgress = useRef(0);
   const drinkGlass = useRef<THREE.Group>(null);
@@ -438,7 +500,7 @@ function Visitor() {
   const facing = Math.atan2(-(px - vx), -(pz - vz));
   const [sx, sz] = toWorld(323, 277);
   const synthFacing = Math.atan2(-(sx - vx), -(sz - vz));
-  if (friendActivity === 'tune' || friendActivity === 'vodka' || friendActivity === 'video-game') return <group position={[vx, 0, vz]} rotation={[0, 0, 0]} scale={1.35} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><SittingLegs /><FriendTorso hipY={0.62} groove={friendActivity === 'tune'} />{friendActivity === 'vodka' && <group ref={drinkGlass} position={[-0.22, 0.92, -0.32]}><mesh><cylinderGeometry args={[0.09, 0.1, 0.2, 12]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.75} /></mesh></group>}{friendActivity === 'tune' && <Html center position={[0, 2.4, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">MAKING A TUNE</div></Html>}</group>;
+  if (friendActivity === 'tune' || friendActivity === 'vodka' || friendActivity === 'video-game') return <group position={[vx, 0, vz]} rotation={[0, 0, 0]} scale={1.35} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><SittingLegs /><FriendTorso hipY={0.62} groove={friendActivity === 'tune'} />{friendActivity === 'vodka' && <group ref={drinkGlass} position={[-0.22, 0.92, -0.32]}><mesh><cylinderGeometry args={[0.09, 0.1, 0.2, 12]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.75} /></mesh></group>}</group>;
   return <group position={[vx, 0, vz]} rotation={[0, friendActivity ? facing : synthFacing, 0]} scale={1.35} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}>
     {/* Tall, slender friend: oversized boots, narrow silhouette, and individual dreadlock strands. */}
     <mesh position={[-0.14, 0.45, 0]} castShadow><capsuleGeometry args={[0.09, 0.72, 4, 8]} /><meshStandardMaterial color="#293026" /></mesh>
@@ -448,7 +510,8 @@ function Visitor() {
     <FriendTorso hipY={0.82} />
     {!friendActivity && !friendMenuOpen && <SynthPerformance />}
     {!friendActivity && <mesh position={[0, 1.15, 0.18]} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><boxGeometry args={[0.8, 1.7, 0.18]} /><meshBasicMaterial transparent opacity={0} /></mesh>}
-    <Html center position={[0, 2.65, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">{friendActivity ? 'FRIEND · ENTER' : 'FRIEND · PATCHING SYNTH'}</div></Html>
+    {/* No narration plate — the label only appears as an affordance when the friend is selected. */}
+    {selected && <Html center position={[0, 2.65, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">FRIEND · ENTER</div></Html>}
   </group>;
 }
 
@@ -557,7 +620,6 @@ function Npc2() {
         <mesh position={[0.12, 0.16, -0.18]}><boxGeometry args={[0.1, 0.045, 0.02]} /><meshStandardMaterial color="#d8e7ed" /></mesh>
       </group>
     </group>
-    <Html center position={[0, 2.05, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">FRIEND 2 · LISTENING</div></Html>
   </group>;
 }
 
@@ -605,58 +667,138 @@ function Room() {
     .getStyle();
   // Sunrise light arrives warm and turns neutral as the morning fills in.
   const sunColor = new THREE.Color('#9bb9ff').lerp(new THREE.Color('#ffb877'), golden).lerp(new THREE.Color('#fff1d0'), Math.max(0, daylight - golden)).getStyle();
-  if (activeLocationId === 'apartment-corridor') return <Corridor sky={sky} />;
+  if (activeLocationId === 'elevator') return <ElevatorCar />;
+  if (activeLocationId === 'apartment-lobby' || activeLocationId === 'apartment-corridor') return <Lobby />;
   return <>
-    <color attach="background" args={[sky]} /><fog attach="fog" args={[sky, 9, 24]} />
+    <color attach="background" args={[sky]} /><fog attach="fog" args={[sky, 9 * ROOM_SCALE, 24 * ROOM_SCALE]} />
     <ambientLight intensity={0.55 + outdoor * 0.7} color={new THREE.Color('#7183ad').lerp(new THREE.Color('#e8a877'), golden).lerp(new THREE.Color('#b8dcf0'), Math.max(0, daylight - golden)).getStyle()} /><directionalLight castShadow position={[3, 8, 4]} intensity={1.5 + outdoor * 2.2} color={sunColor} shadow-mapSize={[1024, 1024]} />
     <pointLight position={[-3, 4.2, -2]} intensity={activeVideoId === 'anime' ? 13 : 9} color={activeVideoId === 'anime' ? '#5e8fe8' : '#b73545'} distance={7} /><pointLight position={[2, 3.5, 1]} intensity={5} color={activeVideoId === 'anime' ? '#d26fa7' : '#d6a447'} distance={5} />
     {/* Soft red-tone wash for a warm nocturnal mood without washing out the blue night. */}
     <hemisphereLight args={['#3a2530', '#0c1018', 0.4]} />
     <pointLight position={[4, 3, 4]} intensity={3.4} color="#c0394a" distance={12} />
     <pointLight position={[-5, 2.4, 3]} intensity={2.6} color="#a8384a" distance={11} />
-    <mesh receiveShadow position={[0, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[14, 0.16, 10]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
+    {/* The room shell scales with the layout so the enlarged studio keeps its proportions and mood. */}
+    <mesh receiveShadow position={[0, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[14 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
     {/* Walls are translucent so they never block the view when the camera orbits (depthWrite off = no occlusion). */}
-    <mesh position={[0, 3.1, -5]}><boxGeometry args={[14, 6.2, 0.18]} /><meshStandardMaterial color="#243146" transparent opacity={0.16} depthWrite={false} /></mesh>
-    <mesh position={[-7, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
-    {/* Right wall the closet is mounted against. */}
-    <mesh position={[7, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
-    <mesh position={[0, 6.15, 0]}><boxGeometry args={[14, 0.12, 10]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
+    <mesh position={[0, 3.1, -5 * ROOM_SCALE]}><boxGeometry args={[14 * ROOM_SCALE, 6.2, 0.18]} /><meshStandardMaterial color="#243146" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[-7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
+    {/* Right wall the closet and the bedside window are mounted against. */}
+    <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[0, 6.15, 0]}><boxGeometry args={[14 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
     {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<Player /><Visitor /><Npc2 /><CameraRig />
   </>;
 }
 
-/** A compact exterior corridor destination with a working elevator return point. */
-function Corridor({ sky }: { sky: string }) {
-  const returnToStudio = useGameStore((state) => state.returnToStudio);
+/** The call-button panel shared by the lobby and (in fixed form) the elevator car. */
+function ElevatorPanel({ onPress, label }: { onPress?: () => void; label?: string }) {
+  return <group>
+    <mesh><boxGeometry args={[0.26, 0.62, 0.06]} /><meshStandardMaterial color="#9c8459" metalness={0.3} roughness={0.4} /></mesh>
+    <mesh position={[0, 0.14, 0.04]} onClick={onPress ? (event) => { event.stopPropagation(); onPress(); } : undefined}>
+      <cylinderGeometry args={[0.06, 0.06, 0.03, 16]} /><meshStandardMaterial color="#ffb457" emissive="#ff8c22" emissiveIntensity={1.6} toneMapped={false} />
+    </mesh>
+    <mesh position={[0, -0.08, 0.04]}><cylinderGeometry args={[0.06, 0.06, 0.03, 16]} /><meshStandardMaterial color="#5b4a34" /></mesh>
+    {label && <Html center position={[0, 0.62, 0]} distanceFactor={9}>
+      <button type="button" onClick={onPress} className="pointer-events-auto rounded border border-paper/40 bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap hover:bg-ember/50">{label}</button>
+    </Html>}
+  </group>;
+}
+
+/** Camera fixed inside the car, close enough to read the interior and the doors. */
+function ElevatorRig() {
+  const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const { camera } = useThree();
+  useEffect(() => { camera.position.set(0, 2.5, 2.25); }, [camera]);
+  useFrame(() => { controls.current?.update(); });
+  return <OrbitControls ref={controls} makeDefault target={[0, 1.4, -2.0]} enablePan={false} minDistance={2.2} maxDistance={4.6} minPolarAngle={Math.PI * 0.18} maxPolarAngle={Math.PI * 0.56} enableDamping dampingFactor={0.12} />;
+}
+
+/**
+ * Inside the car. Warm orange light, marble tile, brushed-metal walls and a big mirror on the wall the
+ * rider faces — cosy and a little dated rather than modern or futuristic. The doors slide shut, the car
+ * travels, a chime sounds and the doors part again; `tick` lands the producer on the destination floor.
+ */
+function ElevatorCar() {
+  const arrivesAt = useGameStore((state) => state.elevatorArrivesAt);
+  const doorL = useRef<THREE.Group>(null);
+  const doorR = useRef<THREE.Group>(null);
+  const dinged = useRef(false);
+  useEffect(() => { dinged.current = false; }, [arrivesAt]);
+  useFrame(() => {
+    const remaining = arrivesAt - useGameStore.getState().elapsedMs;
+    const elapsed = ELEVATOR_RIDE_MS - remaining;
+    // Shut over the first second, stay shut through the ride, part again over the last second.
+    // Clamped so an out-of-range clock (a restored save, a paused tab) can never fling the doors off-screen.
+    const closed = Math.max(0, Math.min(1, elapsed / ELEVATOR_DOOR_MS)) * (remaining > ELEVATOR_DING_MS ? 1 : Math.max(0, remaining / ELEVATOR_DING_MS));
+    if (!dinged.current && remaining <= ELEVATOR_DING_MS) { dinged.current = true; playElevatorDing(); }
+    if (doorL.current) doorL.current.position.x = -2.32 + closed * 1.2;
+    if (doorR.current) doorR.current.position.x = 2.32 - closed * 1.2;
+  });
+  return <>
+    <color attach="background" args={['#0d0905']} />
+    <ambientLight intensity={0.8} color="#f0a860" />
+    {/* Soft ceiling panel plus a warmer bounce off the rear wall. */}
+    <pointLight position={[0, 3.0, 0]} color="#ffb066" intensity={16} distance={11} />
+    <pointLight position={[0, 1.5, 2.0]} color="#e08a3c" intensity={6} distance={7} />
+    <pointLight position={[0, 2.2, -1.4]} color="#ffc98a" intensity={9} distance={7} />
+    {/* Marble tile floor: a pale slab with a checker of veined tiles laid over it. */}
+    <mesh receiveShadow position={[0, -0.08, 0]}><boxGeometry args={[4.4, 0.16, 5.2]} /><meshStandardMaterial color="#d9d2c4" roughness={0.26} metalness={0.14} /></mesh>
+    {Array.from({ length: 6 }).map((_, r) => Array.from({ length: 5 }).map((__, c) => (
+      <mesh key={`t${r}-${c}`} position={[-1.76 + c * 0.88, 0.005, -2.2 + r * 0.88]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.82, 0.82]} /><meshStandardMaterial color={(r + c) % 2 ? '#c4baa7' : '#e8e2d5'} roughness={0.22} metalness={0.22} />
+      </mesh>
+    )))}
+    {/* Brushed-metal side and rear walls with a vintage wood dado rail. */}
+    <mesh position={[-2.26, 1.7, 0]}><boxGeometry args={[0.12, 3.4, 5.2]} /><meshStandardMaterial color="#9c9285" metalness={0.28} roughness={0.5} /></mesh>
+    <mesh position={[2.26, 1.7, 0]}><boxGeometry args={[0.12, 3.4, 5.2]} /><meshStandardMaterial color="#9c9285" metalness={0.28} roughness={0.5} /></mesh>
+    <mesh position={[0, 1.7, 2.6]}><boxGeometry args={[4.4, 3.4, 0.12]} /><meshStandardMaterial color="#8e8577" metalness={0.28} roughness={0.5} /></mesh>
+    {[-2.18, 2.18].map((x) => <mesh key={x} position={[x, 1.0, 0]}><boxGeometry args={[0.07, 0.14, 5.1]} /><meshStandardMaterial color="#6b4b2c" roughness={0.6} /></mesh>)}
+    <mesh position={[0, 1.0, 2.52]}><boxGeometry args={[4.3, 0.14, 0.07]} /><meshStandardMaterial color="#6b4b2c" roughness={0.6} /></mesh>
+    {/* Brass handrail along the rear wall. */}
+    <mesh position={[0, 1.28, 2.42]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.045, 0.045, 3.9, 12]} /><meshStandardMaterial color="#d0a559" metalness={0.35} roughness={0.35} /></mesh>
+    {/* The mirror the rider faces, framed in warm brass. */}
+    <mesh position={[0, 1.95, 2.5]}><boxGeometry args={[2.7, 2.2, 0.06]} /><meshStandardMaterial color="#b28a44" metalness={0.3} roughness={0.4} /></mesh>
+    <mesh position={[0, 1.95, 2.45]}><planeGeometry args={[2.44, 1.94]} /><meshStandardMaterial color="#d4dfe4" metalness={0.2} roughness={0.08} emissive="#93a8b2" emissiveIntensity={0.42} /></mesh>
+    {/* Ceiling with a glowing light panel. */}
+    <mesh position={[0, 3.42, 0]}><boxGeometry args={[4.4, 0.12, 5.2]} /><meshStandardMaterial color="#4a3d2e" /></mesh>
+    <mesh position={[0, 3.3, 0]}><boxGeometry args={[2.0, 0.07, 2.6]} /><meshStandardMaterial color="#ffd9a8" emissive="#ffb066" emissiveIntensity={1.6} toneMapped={false} /></mesh>
+    {/* Sliding doors on the front face, with a lintel above them. */}
+    <mesh position={[0, 3.16, -2.62]}><boxGeometry args={[4.5, 0.42, 0.14]} /><meshStandardMaterial color="#8a8175" metalness={0.25} roughness={0.55} /></mesh>
+    <group ref={doorL} position={[-2.32, 1.55, -2.62]}><mesh><boxGeometry args={[2.24, 3.1, 0.1]} /><meshStandardMaterial color="#b0a596" metalness={0.25} roughness={0.42} /></mesh></group>
+    <group ref={doorR} position={[2.32, 1.55, -2.62]}><mesh><boxGeometry args={[2.24, 3.1, 0.1]} /><meshStandardMaterial color="#b0a596" metalness={0.25} roughness={0.42} /></mesh></group>
+    {/* Button panel on the side wall by the doors. */}
+    <group position={[2.12, 1.5, -1.7]} rotation={[0, -Math.PI / 2, 0]}><ElevatorPanel /></group>
+    <group position={[0, 0, -1.5]}><Player crystal={false} /></group>
+    <ElevatorRig />
+  </>;
+}
+
+/** The apartment lobby: where the elevator lets out, and where it can be called again. */
+function Lobby() {
+  const callElevator = useGameStore((state) => state.callElevator);
   return <>
     <color attach="background" args={['#292018']} /><ambientLight intensity={0.72} color="#d58b52" /><pointLight position={[-1.8, 3.5, 1]} color="#f0a35b" intensity={10} distance={10} /><pointLight position={[2.8, 4.4, -2.5]} color="#ffd08a" intensity={7} distance={8} />
     <mesh receiveShadow position={[0, -0.08, 0]}><boxGeometry args={[9, 0.16, 12]} /><meshStandardMaterial color="#3b4149" roughness={0.82} /></mesh>
     <mesh position={[0, 3, -4.5]}><boxGeometry args={[9, 6, 0.2]} /><meshStandardMaterial color="#50515a" /></mesh>
     <mesh position={[-4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" /></mesh>
     <mesh position={[4.4, 3, 0]}><boxGeometry args={[0.2, 6, 12]} /><meshStandardMaterial color="#484b54" /></mesh>
-    {/* Studio door on the left: it is distinct from the elevator and always returns to the same room. */}
-    <group position={[-2.4, 0, -4.25]}>
-      <mesh position={[0, 1.4, 0]} castShadow onClick={(event) => { event.stopPropagation(); returnToStudio(); }}><boxGeometry args={[1.5, 2.8, 0.18]} /><meshStandardMaterial color="#b73545" /></mesh>
-      <mesh position={[0.5, 1.32, 0.14]}><sphereGeometry args={[0.06, 10, 10]} /><meshStandardMaterial color="#d6a447" metalness={0.7} /></mesh>
-      <Html center position={[0, 3.0, 0]} distanceFactor={9}>
-        <button type="button" onClick={returnToStudio} className="pointer-events-auto rounded border border-paper/40 bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap hover:bg-red/50">STUDIO · ENTER</button>
-      </Html>
-    </group>
-    {/* Elevator placed to the corridor's right side. */}
+    {/* Lobby seating and a potted plant so the floor reads as a real ground level, not a corridor stub. */}
+    <mesh position={[-3.1, 0.42, 1.6]} castShadow><boxGeometry args={[1.6, 0.28, 0.7]} /><meshStandardMaterial color="#6b4b2c" /></mesh>
+    <mesh position={[3.2, 0.36, 0.4]} castShadow><cylinderGeometry args={[0.34, 0.28, 0.6, 12]} /><meshStandardMaterial color="#8a5a3a" /></mesh>
+    <mesh position={[3.2, 1.0, 0.4]}><sphereGeometry args={[0.5, 12, 10]} /><meshStandardMaterial color="#3f6b4a" roughness={0.9} /></mesh>
+    {/* The elevator: the one way back up to the studio. */}
     <group position={[1.45, 0, -4.25]}>
       <mesh position={[0, 1.6, 0]} castShadow><boxGeometry args={[2.8, 3.2, 0.2]} /><meshStandardMaterial color="#20262f" metalness={0.5} /></mesh>
       <mesh position={[-0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#78818c" metalness={0.75} /></mesh>
       <mesh position={[0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#78818c" metalness={0.75} /></mesh>
-      <mesh position={[1.7, 1.2, 0.15]}><boxGeometry args={[0.22, 0.42, 0.08]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={1.2} /></mesh>
-      <Html center position={[0, 3.55, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">ELEVATOR</div></Html>
+      <group position={[1.72, 1.35, 0.15]}><ElevatorPanel onPress={callElevator} label="ELEVATOR · ENTER" /></group>
     </group>
     <Player /><CameraRig />
   </>;
 }
 
 export function ThreeStudio() {
-  return <div className="absolute inset-0"><Canvas shadows camera={{ position: [7.8, 8.6, 9.5], fov: 48 }} style={{ width: '100%', height: '100%' }} onPointerDown={(event) => { pointerDownAt = { x: event.clientX, y: event.clientY }; }}>
+  return <div className="absolute inset-0"><Canvas shadows camera={{ position: [7.8 * ROOM_SCALE, 8.6 * ROOM_SCALE, 9.5 * ROOM_SCALE], fov: 48 }} style={{ width: '100%', height: '100%' }} onPointerDown={(event) => { pointerDownAt = { x: event.clientX, y: event.clientY }; }}>
     <Room />
     {/* Bloom only catches bright emissives — screens, LEDs, the crystal — per the Art Bible's "only emissives bloom" rule. */}
     <EffectComposer>

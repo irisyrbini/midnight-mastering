@@ -93,11 +93,18 @@ export function playModularPatch() {
 }
 
 /** Gentle looping rain ambience: filtered noise, faded in/out so it never snaps on. */
-let rainLoop: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+let rainLoop: { src: AudioBufferSourceNode; gain: GainNode; hail: boolean } | null = null;
 
-export function startRain() {
+/** Rain sits at full level; hail is deliberately mixed well under it so it never buries the music. */
+const RAIN_LEVEL = 0.05;
+const HAIL_LEVEL = RAIN_LEVEL * 0.45;
+
+export function startRain(hail = false) {
   const ac = audio();
-  if (!ac || rainLoop) return;
+  // Already running at the right level — but swap if the weather changed between rain and hail.
+  if (rainLoop && rainLoop.hail === hail) return;
+  if (rainLoop) stopRain();
+  if (!ac) return;
   const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * 2), ac.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * 0.6;
@@ -106,19 +113,19 @@ export function startRain() {
   src.loop = true;
   const highpass = ac.createBiquadFilter();
   highpass.type = 'highpass';
-  highpass.frequency.value = 780;
+  highpass.frequency.value = hail ? 1500 : 780; // hail reads brighter and thinner
   const lowpass = ac.createBiquadFilter();
   lowpass.type = 'lowpass';
-  lowpass.frequency.value = 5200;
+  lowpass.frequency.value = hail ? 7000 : 5200;
   const gain = ac.createGain();
   gain.gain.setValueAtTime(0, ac.currentTime);
-  gain.gain.linearRampToValueAtTime(0.05, ac.currentTime + 1.4); // soft fade-in
+  gain.gain.linearRampToValueAtTime(hail ? HAIL_LEVEL : RAIN_LEVEL, ac.currentTime + 1.4); // soft fade-in
   src.connect(highpass);
   highpass.connect(lowpass);
   lowpass.connect(gain);
   gain.connect(ac.destination);
   src.start();
-  rainLoop = { src, gain };
+  rainLoop = { src, gain, hail };
 }
 
 export function stopRain() {
@@ -131,6 +138,51 @@ export function stopRain() {
   window.setTimeout(() => { try { src.stop(); } catch { /* already stopped */ } }, 1000);
 }
 
+/** One square-wave chip tone — the building block of every retro console sound below. */
+function chip(ac: AudioContext, freq: number, start: number, dur: number, level: number, type: OscillatorType = 'square') {
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, start);
+  gain.gain.setValueAtTime(0, start);
+  gain.gain.linearRampToValueAtTime(level, start + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0005, start + dur);
+  osc.connect(gain);
+  gain.connect(ac.destination);
+  osc.start(start);
+  osc.stop(start + dur + 0.02);
+}
+
+/**
+ * Classic handheld-console chirps, mixed low so they sit under the music. One of several shapes is
+ * chosen at random per call — blip, pop, coin, menu move, power-up — so a long session never settles
+ * into one repeated noise.
+ */
+export function playConsoleBlip() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const level = 0.045; // deliberately quieter than the instruments and ambience
+  const shapes = [
+    () => chip(ac, 880, t, 0.07, level), // blip
+    () => chip(ac, 523.25, t, 0.09, level, 'triangle'), // soft pop
+    () => { chip(ac, 987.77, t, 0.07, level); chip(ac, 1318.51, t + 0.07, 0.18, level); }, // coin
+    () => { chip(ac, 659.25, t, 0.05, level * 0.8); chip(ac, 880, t + 0.05, 0.05, level * 0.8); }, // menu move
+    () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => chip(ac, f, t + i * 0.06, 0.09, level * 0.7)), // power-up run
+    () => { chip(ac, 440, t, 0.06, level, 'square'); chip(ac, 330, t + 0.06, 0.1, level * 0.7, 'square'); }, // menu back
+  ];
+  shapes[Math.floor(Math.random() * shapes.length)]();
+}
+
+/** Two-tone elevator arrival chime. */
+export function playElevatorDing() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  pluck(ac, 1318.51, t, 0.9, 'sine', 0.9, 6000);
+  pluck(ac, 987.77, t + 0.28, 1.4, 'sine', 0.8, 6000);
+}
+
 /** Play the sound cue for an interacted object id, if it has one. */
 export function playInteractionSfx(id: string) {
   if (id === 'acousticGuitar') playAcousticStrum();
@@ -138,4 +190,5 @@ export function playInteractionSfx(id: string) {
   else if (id === 'portasound' || id === 'sk5') playKeyboardChord();
   else if (id === 'lyricNotebook') playScribble();
   else if (id === 'modularSynths') playModularPatch();
+  else if (id === 'switch') playConsoleBlip();
 }
