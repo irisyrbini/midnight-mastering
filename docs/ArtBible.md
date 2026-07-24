@@ -84,6 +84,11 @@ All figures are posed from jointed groups, never rigid meshes, so animation read
 
 A complete piece of furniture, not a bare mattress: a wooden frame on four legs, a **slatted headboard** with a capping rail at the head (−x, where the producer's head rests when lying down), a lower footboard, a mattress, a turned-back top sheet and **two pillows**. The bedding set is **soft pastel pink (`#f2c3ce`) with green stripes (`#7fae86`)** — three stripes across the duvet and one across each pillow. Cosy and domestic against the room's cool blues; it is the one warm, soft surface in a room otherwise made of gear.
 
+**Surface heights (world Y) everything else on the bed is aligned to** — mattress top ≈ 0.61, **duvet (blanket) top ≈ 0.73**, pillow top ≈ 0.77. Anything resting on the bed must sit at the duvet plane, not the mattress:
+
+- **The bed phone** rests on top of the blanket (group Y `0.78`), casually placed and fully visible from the fixed camera. Its flat body sits a hair above the bedding and the lit screen a further hair above that, so there is no clipping or z-fighting with the duvet.
+- **Lying down** (`Player`'s lying branch): the upright figure is tipped onto its back (rotated `π/2` about X) and raised so the **back of the torso rests just below the duvet (≈ 0.67, a ~0.06 sink)** with the rest of the body above the mattress — lying *on* the bed, not *in* it. The head lands over the (lowered) pillows and the feet stay within the mattress. The snap point is the bed centre (`LIE_POSITION = centerOf('bed')`), so alignment is identical regardless of the direction the bed was approached from. The doom-scroll phone is offset to track the raised body.
+
 ### 8c. Ambient thought bubbles
 
 The producer **never speaks** — there is no dialogue system. Instead a very small bubble occasionally fades in above the head, holds ~2.6s and fades out. It carries **mood, not information**: overwhelmingly a single symbol (`…  ♪  ♬  ?  !  ♥  ☕  💤  🍜  🎮  💡  🌧  ☀  🚬`), and only rarely a one- or two-word thought ("Hm." / "Nice." / "Sleep." / "Morning."). Content is chosen from pools matched to what is happening right now — working, making music, smoking, gaming, watching anime, rain, hunger, tiredness, a friend arriving, sunrise, and the crystal's mood — always mixed with the neutral idle pool.

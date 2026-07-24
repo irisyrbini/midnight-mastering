@@ -428,14 +428,16 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   const friendActivity = useGameStore((state) => state.friendActivity);
   const [x, z] = toWorld(position.x, position.y);
   if (lyingDown) {
-    // Lie on the mattress: tip the upright body onto its back (head toward +z, on the pillow) and raise to bed height.
+    // Lie ON the bedding, not sunk into it. The upright body is tipped onto its back (head toward +z,
+    // onto the pillow); the group Y is set so the back of the torso rests just below the duvet surface
+    // (world ≈ 0.73) with only a small realistic sink, keeping the whole body above the mattress.
     return <group position={[x, 0, z]}>
-      <group position={[0, 0.55, -1.1]} rotation={[Math.PI / 2, 0, 0]}>
+      <group position={[0, 0.86, -0.95]} rotation={[Math.PI / 2, 0, 0]}>
         <UpperBody hipY={0.82} />
         <StandingLegs />
       </group>
-      {/* doom-scrolling: a glowing phone held up over the face */}
-      {scrolling && <group position={[0, 0.95, 0.55]}>
+      {/* doom-scrolling: a glowing phone held up over the face (tracks the raised lying body) */}
+      {scrolling && <group position={[0, 1.28, 0.5]}>
         <mesh rotation={[-0.6, 0, 0]}><boxGeometry args={[0.24, 0.44, 0.02]} /><meshStandardMaterial color="#0c0e14" /></mesh>
         <mesh position={[0, 0, 0.02]} rotation={[-0.6, 0, 0]}><planeGeometry args={[0.2, 0.38]} /><meshStandardMaterial color="#3a4a70" emissive="#5468a0" emissiveIntensity={1.3} toneMapped={false} /></mesh>
         <pointLight color="#6a7fb8" intensity={0.7} distance={1.2} />

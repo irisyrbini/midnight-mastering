@@ -278,14 +278,15 @@ function Bed() {
     ))}
     {/* Turned-back top sheet at the head end. */}
     <mesh position={[-0.82, 0.68, 0]} castShadow><boxGeometry args={[0.34, 0.1, 1.62]} /><meshStandardMaterial color="#fbeef1" roughness={0.95} /></mesh>
-    {/* Two pillows side by side against the headboard. */}
+    {/* Two pillows side by side against the headboard. Kept low (top ≈ 0.77) so a lying head rests
+        ON them rather than beside a pillow that towers over it. */}
     {[-0.36, 0.36].map((pz) => (
-      <mesh key={pz} position={[-0.82, 0.78, pz]} rotation={[0, 0, 0.06]} castShadow>
-        <boxGeometry args={[0.5, 0.18, 0.66]} /><meshStandardMaterial color="#fdf6f2" roughness={0.96} />
+      <mesh key={pz} position={[-0.82, 0.70, pz]} rotation={[0, 0, 0.05]} castShadow>
+        <boxGeometry args={[0.5, 0.14, 0.66]} /><meshStandardMaterial color="#fdf6f2" roughness={0.96} />
       </mesh>
     ))}
     {[-0.36, 0.36].map((pz) => (
-      <mesh key={`s${pz}`} position={[-0.82, 0.875, pz]}><boxGeometry args={[0.5, 0.005, 0.16]} /><meshStandardMaterial color={BEDDING_GREEN} roughness={0.95} /></mesh>
+      <mesh key={`s${pz}`} position={[-0.82, 0.775, pz]}><boxGeometry args={[0.5, 0.005, 0.16]} /><meshStandardMaterial color={BEDDING_GREEN} roughness={0.95} /></mesh>
     ))}
   </group>;
 }
@@ -377,10 +378,12 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[-0.1, 0.03, -0.22]}><boxGeometry args={[0.1, 0.02, 0.1]} /><meshStandardMaterial color="#1a1d24" /></mesh>
     </group>;
 
-    // Phone resting on the mattress (bed surface ≈ 0.5 world).
-    case 'bedPhone': return <group position={[0, 0.52, 0]} rotation={[0, -0.4, 0]}>
-      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.32, 0.66, 0.03]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
-      <mesh position={[0, 0.037, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.28, 0.6]} /><meshStandardMaterial color="#3a4a70" emissive="#4a5c8a" emissiveIntensity={1.1} toneMapped={false} /></mesh>
+    // Phone resting ON TOP of the duvet (blanket top ≈ 0.73 world), not sunk into the mattress.
+    // The flat body sits a hair above the bedding and the lit screen a further hair above that,
+    // so it reads as casually dropped on the bed with no clipping or z-fighting.
+    case 'bedPhone': return <group position={[0, 0.78, 0]} rotation={[0, -0.4, 0]}>
+      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.32, 0.66, 0.03]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
+      <mesh position={[0, 0.033, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.28, 0.6]} /><meshStandardMaterial color="#3a4a70" emissive="#4a5c8a" emissiveIntensity={1.1} toneMapped={false} /></mesh>
       <pointLight position={[0, 0.2, 0]} color="#6a7fb8" intensity={0.5} distance={1.4} />
     </group>;
 
