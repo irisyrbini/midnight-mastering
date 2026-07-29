@@ -2,6 +2,7 @@
 
 > **Codename:** Midnight Mastering · **In-game title:** *Make Me Happy Again*
 > **Status:** Source of truth. Read before any change. This document describes the game as it is currently built, not an aspiration. Redesigns require editing this file first.
+> **Read [Vision.md](Vision.md) first** — it is the project's north star (why the game exists, what it must never become, and the core rule for whether a change belongs). This GDD is downstream of it.
 
 ## 1. One-line pitch
 
