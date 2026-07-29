@@ -58,8 +58,12 @@ type GameState = GameSnapshot & {
   /** Elevator ride in progress: where it is heading and when it gets there (`elapsedMs`). */
   elevatorTo: string | null;
   elevatorArrivesAt: number;
+  elevatorOrigin: string;
+  cameraYaw: number;
   /** Set once the producer reaches the ground-floor lobby; spends on the next return to the studio. */
   visitedLobby: boolean;
+  /** Chapter 1 completion unlocks the lobby's outside entrance; chapter 2 remains a future area. */
+  chapter1Unlocked: boolean;
   /** Ambient thought bubble above the producer. `n` bumps so the renderer can restart its fade. */
   thought: Thought | null;
   thoughtCooldown: number;
@@ -78,11 +82,15 @@ type GameState = GameSnapshot & {
   stepNpc2: (deltaMs: number) => void;
   selectObject: (id?: string) => void;
   closeVideo: () => void;
+  openVideo: (id: string) => void;
   openFriendMenu: () => void;
   closeFriendMenu: () => void;
   doFriendActivity: (activity: FriendActivity) => void;
   returnToStudio: () => void;
   enterElevator: () => void;
+  exitElevator: () => void;
+  continueAfterChapter: () => void;
+  setCameraYaw: (yaw: number) => void;
   selectFloor: (loc: string) => void;
   choose: (kind: string) => void;
   dismissPrompt: () => void;
@@ -305,7 +313,10 @@ const initialSession = () => ({
   npc2PauseUntil: 0,
   elevatorTo: null as string | null,
   elevatorArrivesAt: 0,
+  elevatorOrigin: 'apartment-hallway',
+  cameraYaw: 0,
   visitedLobby: false,
+  chapter1Unlocked: false,
   thought: null as Thought | null,
   thoughtCooldown: 40,
   selectedObjectId: undefined as string | undefined,
@@ -368,6 +379,15 @@ export const useGameStore = create<GameState>((set) => ({
   pause: () => set((state) => (state.phase === 'playing' ? { phase: 'paused' } : state)),
   resume: () => set((state) => (state.phase === 'paused' ? { phase: 'playing' } : state)),
   restart: () => set({ phase: 'playing', ...initialSession() }),
+  continueAfterChapter: () => set((state) => ({
+    phase: 'playing',
+    ending: null,
+    activeLocationId: 'apartment-lobby',
+    playerPosition: { x: 640, y: 560 },
+    moveTarget: null,
+    chapter1Unlocked: true,
+    visitedLobby: true,
+  })),
   movePlayer: (direction) => set((state) => {
     if (state.phase !== 'playing') return state;
     // Keyboard steps cancel any active click-to-move target so input stays predictable, and stand the producer up.
@@ -401,7 +421,9 @@ export const useGameStore = create<GameState>((set) => ({
     return { playerPosition, selectedObjectId: state.moveTarget.selectId ?? nearestObjectId(playerPosition) };
   }),
   selectObject: (selectedObjectId) => set({ selectedObjectId }),
+  setCameraYaw: (cameraYaw) => set((state) => (Math.abs(state.cameraYaw - cameraYaw) < 0.01 ? state : { cameraYaw })),
   closeVideo: () => set({ activeVideoId: undefined }),
+  openVideo: (activeVideoId) => set({ activeVideoId }),
   openFriendMenu: () => set((state) => state.visitorActive && state.visitorPhase === 'staying' ? { friendMenuOpen: true } : state),
   closeFriendMenu: () => set({ friendMenuOpen: false }),
   returnToStudio: () => set((state) => ({
@@ -418,6 +440,7 @@ export const useGameStore = create<GameState>((set) => ({
    * so the floor-selection panel shows; the actual ride starts in `selectFloor`. */
   enterElevator: () => set((state) => (state.phase !== 'playing' ? state : {
     activeLocationId: 'elevator',
+    elevatorOrigin: state.activeLocationId,
     elevatorTo: null,
     elevatorArrivesAt: 0,
     playerPosition: { x: 640, y: 560 },
@@ -427,6 +450,7 @@ export const useGameStore = create<GameState>((set) => ({
     lyingDown: false,
     selectedObjectId: undefined,
   })),
+  exitElevator: () => set((state) => (state.activeLocationId === 'elevator' && state.elevatorTo === null ? { activeLocationId: state.elevatorOrigin, moveTarget: null, selectedObjectId: undefined } : state)),
   /** Pick a floor: the doors close, the car travels, and `tick` drops the rider on that floor. */
   selectFloor: (loc) => set((state) => (state.activeLocationId !== 'elevator' || state.elevatorTo ? state : {
     elevatorTo: loc,

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject
 import { STUDIO_OBJECTS, type StudioObject } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
 import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, useGameStore } from '@/store/game-store';
-import { RoomObjectModel, DESK_Y, DESKTOP_IDS, TABLE2_Y, TABLE_IDS } from './RoomObjectModel';
+import { RoomObjectModel, DESK_Y, DESK_Z_OFFSET, DESKTOP_IDS, TABLE2_Y, TABLE_IDS } from './RoomObjectModel';
 import { playElevatorDing, playModularPatch } from '@/game/audio/sfx';
 import { dayCycle } from '@/game/simulation/day-cycle';
 
@@ -19,6 +19,22 @@ import { dayCycle } from '@/game/simulation/day-cycle';
  */
 const UNITS_PER_WORLD = 72;
 const ROOM_SCALE = 90 / UNITS_PER_WORLD; // room shell grows by the same factor the layout spreads
+
+// Wall planes, derived from the same ROOM_SCALE the wall meshes below use, so anything anchored to a
+// wall moves with it if the room is resized. The 0.09 is half the 0.18 wall thickness — its inner
+// (room-facing) face.
+const WALL_BACK_INNER_Z = -5 * ROOM_SCALE + 0.09;
+const WALL_RIGHT_INNER_X = 7 * ROOM_SCALE - 0.09;
+const WALL_GAP = 0.01; // hair of clearance so a mounted object never z-fights the wall
+/** Each wall-mounted model's distance from its own origin to its wall-facing back face. */
+const WALL_MOUNT_DEPTH: Record<string, number> = {
+  window: 0.06, window2: 0.06, // frame is 0.12 deep
+  posters: 0.025, posters2: 0.025, posters3: 0.025, posters4: 0.025, // thin backing board
+  shelves: 0.25, // deep shelf box
+  ledLights: 0.05,
+  closet: 0.39, // sliding wardrobe body sits back from its origin
+  bathroom: 0.07, // door frame
+};
 const toWorld = (x: number, y: number): [number, number] => [(x - 640) / UNITS_PER_WORLD, (y - 510) / UNITS_PER_WORLD];
 /** Inverse of toWorld: a floor click's world point back to the logical room coordinate the sim uses. */
 const toLogical = (worldX: number, worldZ: number) => ({ x: worldX * UNITS_PER_WORLD + 640, y: worldZ * UNITS_PER_WORLD + 510 });
@@ -31,7 +47,13 @@ const isDrag = (event: MouseEvent) => (pointerDownAt ? Math.hypot(event.clientX 
 /** Mouse-drag orbits the view around a fixed room-centre axis, so WASD/click movement visibly walks the producer across the room. */
 function CameraRig() {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
-  useFrame(() => { controls.current?.update(); });
+  const { camera } = useThree();
+  const setCameraYaw = useGameStore((state) => state.setCameraYaw);
+  useFrame(() => {
+    controls.current?.update();
+    const target = controls.current?.target;
+    if (target) setCameraYaw(Math.atan2(camera.position.x - target.x, camera.position.z - target.z));
+  });
   return <OrbitControls ref={controls} makeDefault target={[0, 1.2, -1]} enablePan={false} enableZoom minDistance={7 * ROOM_SCALE} maxDistance={24 * ROOM_SCALE} minPolarAngle={Math.PI * 0.16} maxPolarAngle={Math.PI * 0.46} enableDamping dampingFactor={0.12} />;
 }
 
@@ -645,13 +667,18 @@ function Npc2() {
     </group>
     <group ref={body} position={[0, 0.58, 0]}>
       <mesh position={[0, 0.31, 0]} castShadow><boxGeometry args={[0.42, 0.62, 0.28]} /><meshStandardMaterial color={NPC2_COAT} /></mesh>
-      {[-0.24, -0.12, 0.12, 0.24].map((bx, i) => <mesh key={i} position={[bx, 0.3, -0.15]}><sphereGeometry args={[0.035, 8, 8]} /><meshStandardMaterial color="#b73545" /></mesh>)}
       <group ref={armL} position={[-0.26, 0.55, 0]} rotation={[0, 0, -0.14]}>
-        <mesh position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.06, 0.4, 4, 8]} /><meshStandardMaterial color={NPC2_COAT} /></mesh>
+        <mesh position={[0, -0.14, 0]} castShadow><capsuleGeometry args={[0.06, 0.2, 4, 8]} /><meshStandardMaterial color={NPC2_COAT} /></mesh>
+        <mesh position={[0, -0.36, 0]} castShadow><capsuleGeometry args={[0.055, 0.2, 4, 8]} /><meshStandardMaterial color={NPC2_SKIN} /></mesh>
+        <mesh position={[0, -0.31, -0.065]}><boxGeometry args={[0.09, 0.035, 0.012]} /><meshStandardMaterial color="#252a31" /></mesh>
+        <mesh position={[0, -0.4, -0.058]} rotation={[0, 0, -0.4]}><boxGeometry args={[0.07, 0.025, 0.012]} /><meshStandardMaterial color="#252a31" /></mesh>
         <mesh position={[0, -0.52, -0.02]}><sphereGeometry args={[0.075, 8, 8]} /><meshStandardMaterial color={NPC2_SKIN} /></mesh>
       </group>
       <group ref={armR} position={[0.26, 0.55, 0]} rotation={[0, 0, 0.14]}>
-        <mesh position={[0, -0.25, 0]} castShadow><capsuleGeometry args={[0.06, 0.4, 4, 8]} /><meshStandardMaterial color={NPC2_COAT} /></mesh>
+        <mesh position={[0, -0.14, 0]} castShadow><capsuleGeometry args={[0.06, 0.2, 4, 8]} /><meshStandardMaterial color={NPC2_COAT} /></mesh>
+        <mesh position={[0, -0.36, 0]} castShadow><capsuleGeometry args={[0.055, 0.2, 4, 8]} /><meshStandardMaterial color={NPC2_SKIN} /></mesh>
+        <mesh position={[0, -0.31, -0.065]}><boxGeometry args={[0.09, 0.035, 0.012]} /><meshStandardMaterial color="#252a31" /></mesh>
+        <mesh position={[0, -0.4, -0.058]} rotation={[0, 0, 0.4]}><boxGeometry args={[0.07, 0.025, 0.012]} /><meshStandardMaterial color="#252a31" /></mesh>
         <mesh position={[0, -0.52, -0.02]}><sphereGeometry args={[0.075, 8, 8]} /><meshStandardMaterial color={NPC2_SKIN} /></mesh>
       </group>
       <group ref={head} position={[0, 0.66, 0]}>
@@ -673,6 +700,17 @@ function RoomObject({ object }: { object: StudioObject }) {
   const guitarNotesMinutes = useGameStore((state) => state.guitarNotesMinutes);
   const baseY = DESKTOP_IDS.has(object.id) ? DESK_Y : TABLE_IDS.has(object.id) ? TABLE2_Y : 0; // gear sits on its table surface
   const ring = Math.max(0.5, Math.max(object.width, object.height) / 150);
+  // Wall-mounted models are anchored to the room shell's wall plane rather than to their raw layout
+  // position, so they stay flush no matter how the room is sized. The offset is applied along the
+  // model's local Z, so right-wall objects (rotated a quarter turn) stay flush too. `WALL_MOUNT_DEPTH`
+  // is each model's distance from its own origin to its wall-facing back face, so the back sits on the
+  // wall (a hair proud, `WALL_GAP`, to avoid z-fighting) and the object extends into the room.
+  const mountDepth = WALL_MOUNT_DEPTH[object.id] ?? 0.05;
+  const wallOffset = object.wall === 'back'
+    ? (WALL_BACK_INNER_Z + mountDepth + WALL_GAP) - z
+    : object.wall === 'right'
+      ? x - (WALL_RIGHT_INNER_X - mountDepth - WALL_GAP)
+      : 0;
   // Point-and-click: first click walks to the object and selects it; clicking the selected object uses it.
   const onSelect = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -680,12 +718,13 @@ function RoomObject({ object }: { object: StudioObject }) {
     if (selected) interact(object.id);
     else setMoveTarget({ x: object.x + object.width / 2, y: object.y + object.height / 2, selectId: object.id });
   };
+  const localZOffset = object.wall ? wallOffset : DESKTOP_IDS.has(object.id) ? DESK_Z_OFFSET : 0;
   return <group position={[x, 0, z]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
-    <RoomObjectModel object={object} />
+    <group position={[0, 0, localZOffset]}><RoomObjectModel object={object} /></group>
     {(object.id === 'acousticGuitar' || object.id === 'electricGuitar') && guitarNotesMinutes > 0 && <group position={[0, 1.4, 0]}><Sparkles count={26} scale={[1.3, 1.7, 1.2]} size={2.5} speed={1.2} color="#ffd25a" /><Html center position={[0.35, 1.15, 0]} distanceFactor={8}><span className="text-2xl text-[#ffd25a] drop-shadow-[0_0_8px_#d6a447]">♪</span></Html></group>}
     {selected && <>
-      <mesh position={[0, baseY + 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[ring * 0.9, ring * 1.15, 40]} /><meshBasicMaterial color="#e6c34c" transparent opacity={0.85} /></mesh>
-      <Html center position={[0, baseY + 1.7, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">{label} · CLICK / ENTER</div></Html>
+      {!object.wall && <mesh position={[0, baseY + 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[ring * 0.9, ring * 1.15, 40]} /><meshBasicMaterial color="#e6c34c" transparent opacity={0.85} /></mesh>}
+      <Html center position={[0, object.wall ? 2.25 : baseY + 1.7, object.wall ? wallOffset : 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">{label} · CLICK / ENTER</div></Html>
     </>}
   </group>;
 }
@@ -697,6 +736,7 @@ function Room() {
   const minute = useGameStore((state) => Math.floor(state.clock.minuteOfDay));
   const weather = useGameStore((state) => state.weather);
   const activeVideoId = useGameStore((state) => state.activeVideoId);
+  const chapterCelebration = useGameStore((state) => state.phase === 'ending' && state.ending === 'finished');
   const { daylight, golden } = dayCycle(minute);
   const wet = weather === 'rain' || weather === 'hail';
   // Overcast weather pulls the outdoor contribution down without touching the room's own practical lights.
@@ -705,6 +745,7 @@ function Room() {
     .lerp(new THREE.Color('#8dc7e5'), daylight)
     .lerp(new THREE.Color('#e08f4c'), golden * (0.15 + daylight * 0.45)) // warm, but the sky only floods once the sun is actually up
     .lerp(new THREE.Color(wet ? '#22364a' : weather === 'rainbow' ? '#7799b6' : '#000000'), weather === 'clear' ? 0 : wet ? 0.5 : 0.35)
+    .lerp(new THREE.Color('#d879a8'), chapterCelebration ? 0.72 : 0)
     .getStyle();
   // Sunrise light arrives warm and turns neutral as the morning fills in.
   const sunColor = new THREE.Color('#9bb9ff').lerp(new THREE.Color('#ffb877'), golden).lerp(new THREE.Color('#fff1d0'), Math.max(0, daylight - golden)).getStyle();
@@ -715,11 +756,11 @@ function Room() {
   if (activeLocationId === 'apartment-hallway' || activeLocationId === 'apartment-corridor') return <Hallway />;
   return <>
     <color attach="background" args={[sky]} /><fog attach="fog" args={[sky, 9 * ROOM_SCALE, 24 * ROOM_SCALE]} />
-    <ambientLight intensity={0.55 + outdoor * 0.7} color={new THREE.Color('#7183ad').lerp(new THREE.Color('#e8a877'), golden).lerp(new THREE.Color('#b8dcf0'), Math.max(0, daylight - golden)).getStyle()} /><directionalLight castShadow position={[3, 8, 4]} intensity={1.5 + outdoor * 2.2} color={sunColor} shadow-mapSize={[1024, 1024]} />
+    <ambientLight intensity={chapterCelebration ? 1.15 : 0.55 + outdoor * 0.7} color={new THREE.Color('#7183ad').lerp(new THREE.Color('#e8a877'), golden).lerp(new THREE.Color('#b8dcf0'), Math.max(0, daylight - golden)).lerp(new THREE.Color('#ffd0e6'), chapterCelebration ? 0.8 : 0).getStyle()} /><directionalLight castShadow position={[3, 8, 4]} intensity={(chapterCelebration ? 2.8 : 1.5) + outdoor * 2.2} color={chapterCelebration ? '#ffb5d3' : sunColor} shadow-mapSize={[1024, 1024]} />
     <pointLight position={[-3, 4.2, -2]} intensity={activeVideoId === 'anime' ? 13 : 9} color={activeVideoId === 'anime' ? '#5e8fe8' : '#b73545'} distance={7} /><pointLight position={[2, 3.5, 1]} intensity={5} color={activeVideoId === 'anime' ? '#d26fa7' : '#d6a447'} distance={5} />
     {/* Soft red-tone wash for a warm nocturnal mood without washing out the blue night. */}
     <hemisphereLight args={['#3a2530', '#0c1018', 0.4]} />
-    <pointLight position={[4, 3, 4]} intensity={3.4} color="#c0394a" distance={12} />
+    <pointLight position={[4, 3, 4]} intensity={chapterCelebration ? 8 : 3.4} color={chapterCelebration ? '#ff78b2' : '#c0394a'} distance={12} />
     <pointLight position={[-5, 2.4, 3]} intensity={2.6} color="#a8384a" distance={11} />
     {/* The room shell scales with the layout so the enlarged studio keeps its proportions and mood. */}
     <mesh receiveShadow position={[0, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[14 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
@@ -730,8 +771,30 @@ function Room() {
     <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[0, 6.15, 0]}><boxGeometry args={[14 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
-    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<Player /><Visitor /><Npc2 /><CameraRig />
+    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<Player /><Visitor /><Npc2 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;
+}
+
+function CelebrationFX({ active }: { active: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const pieces = useMemo(() => Array.from({ length: 52 }, (_, i) => ({
+    x: ((i * 17) % 100) / 100 * 11 - 5.5,
+    y: 1.2 + ((i * 13) % 100) / 100 * 5.4,
+    z: ((i * 29) % 100) / 100 * 7 - 3.5,
+    color: ['#ff87b8', '#ffd34d', '#62cf86', '#8dc7e5'][i % 4],
+    phase: i * 0.37,
+  })), []);
+  useFrame(({ clock }, delta) => {
+    if (!group.current || !active) return;
+    group.current.children.forEach((child, i) => {
+      child.position.y -= delta * (0.18 + (i % 4) * 0.05);
+      child.rotation.x += delta * (1.5 + i % 3);
+      child.rotation.z += delta * (1 + i % 2);
+      if (child.position.y < 0.25) child.position.y = 5.9 + Math.sin(clock.elapsedTime + pieces[i].phase) * 0.3;
+    });
+  });
+  if (!active) return null;
+  return <group ref={group}><pointLight position={[0, 2.5, 0]} color="#ff8fbe" intensity={7} distance={10} />{pieces.map((piece, i) => <mesh key={i} position={[piece.x, piece.y, piece.z]} rotation={[piece.phase, piece.phase * 0.5, 0]}><boxGeometry args={[0.09, 0.18, 0.035]} /><meshStandardMaterial color={piece.color} emissive={piece.color} emissiveIntensity={0.45} /></mesh>)}</group>;
 }
 
 /** The call-button panel shared by the lobby and (in fixed form) the elevator car. */
@@ -756,8 +819,9 @@ function ElevatorPanel({ onPress, label }: { onPress?: () => void; label?: strin
 function PlaceRig({ from, target, min, max }: { from: [number, number, number]; target: [number, number, number]; min: number; max: number }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { camera } = useThree();
+  const setCameraYaw = useGameStore((state) => state.setCameraYaw);
   useEffect(() => { camera.position.set(...from); }, [camera, from]);
-  useFrame(() => { controls.current?.update(); });
+  useFrame(() => { controls.current?.update(); const currentTarget = controls.current?.target; if (currentTarget) setCameraYaw(Math.atan2(camera.position.x - currentTarget.x, camera.position.z - currentTarget.z)); });
   return <OrbitControls ref={controls} makeDefault target={target} enablePan={false} minDistance={min} maxDistance={max} minPolarAngle={Math.PI * 0.16} maxPolarAngle={Math.PI * 0.46} enableDamping dampingFactor={0.12} />;
 }
 
@@ -765,8 +829,9 @@ function PlaceRig({ from, target, min, max }: { from: [number, number, number]; 
 function ElevatorRig() {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { camera } = useThree();
+  const setCameraYaw = useGameStore((state) => state.setCameraYaw);
   useEffect(() => { camera.position.set(0, 2.5, 2.25); }, [camera]);
-  useFrame(() => { controls.current?.update(); });
+  useFrame(() => { controls.current?.update(); const currentTarget = controls.current?.target; if (currentTarget) setCameraYaw(Math.atan2(camera.position.x - currentTarget.x, camera.position.z - currentTarget.z)); });
   return <OrbitControls ref={controls} makeDefault target={[0, 1.4, -2.0]} enablePan={false} minDistance={2.2} maxDistance={4.6} minPolarAngle={Math.PI * 0.18} maxPolarAngle={Math.PI * 0.56} enableDamping dampingFactor={0.12} />;
 }
 
@@ -878,6 +943,8 @@ function Hallway() {
  */
 function Lobby() {
   const enterElevator = useGameStore((state) => state.enterElevator);
+  const chapter1Unlocked = useGameStore((state) => state.chapter1Unlocked);
+  const openVideo = useGameStore((state) => state.openVideo);
   return <>
     <color attach="background" args={['#241b14']} />
     <ambientLight intensity={0.66} color="#d8955c" />
@@ -908,6 +975,12 @@ function Lobby() {
       ))}
       <mesh position={[0, 1.9, -0.14]}><boxGeometry args={[0.16, 3.5, 0.06]} /><meshStandardMaterial color="#33291f" /></mesh>
       {[-0.28, 0.28].map((dx) => <mesh key={`h${dx}`} position={[dx, 1.5, -0.2]}><cylinderGeometry args={[0.035, 0.035, 0.7, 10]} /><meshStandardMaterial color="#c79a4e" metalness={0.4} roughness={0.35} /></mesh>)}
+    </group>
+    {/* Chapter 2 gateway: unlocked by the Chapter 1 ending, but intentionally still a Coming Soon door. */}
+    <group position={[-3.0, 0, 6.52]} onClick={(event) => { event.stopPropagation(); if (chapter1Unlocked) openVideo('greenhouse'); }}>
+      <mesh position={[0, 2.3, 0.04]}><boxGeometry args={[1.9, 4.6, 0.2]} /><meshStandardMaterial color={chapter1Unlocked ? '#5e3751' : '#33291f'} roughness={0.7} /></mesh>
+      <mesh position={[0, 2.0, -0.1]}><planeGeometry args={[1.45, 3.5]} /><meshStandardMaterial color={chapter1Unlocked ? '#d487aa' : '#5c554d'} emissive={chapter1Unlocked ? '#c75d91' : '#000000'} emissiveIntensity={chapter1Unlocked ? 0.55 : 0} /></mesh>
+      <Html center position={[0, 4.9, 0]} distanceFactor={9}><span className={`rounded border px-2 py-1 text-[10px] whitespace-nowrap ${chapter1Unlocked ? 'border-[#ffb7d4]/70 bg-[#321b38]/90 text-[#ffb7d4]' : 'border-paper/25 bg-night/80 text-paper/55'}`}>{chapter1Unlocked ? 'NEW CHAPTER UNLOCKED · GREENHOUSE' : 'GREENHOUSE · COMING SOON'}</span></Html>
     </group>
     {/* Wall of brass mailboxes — the signature of an old apartment lobby. */}
     <group position={[-5.05, 0, 0.6]} rotation={[0, Math.PI / 2, 0]}>

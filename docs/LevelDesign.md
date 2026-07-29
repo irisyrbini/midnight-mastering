@@ -57,6 +57,16 @@ Both windows call one `WindowUnit`, driven by the same `dayCycle(minuteOfDay)` +
 
 The player is clamped to `x ∈ [90, 1190]`, `y ∈ [410, 590]` (`clampToRoom`, shared by keyboard steps and click-to-move). Objects sit above this band so the producer walks a foreground lane along the front of the room — consistent with the fixed camera framing. Clicking an object above the lane walks the player to the object's x at the lane edge and keeps it selected (see [Gameplay.md](Gameplay.md) §4).
 
+## 4a. Wall-mounted objects
+
+Anything flat against a wall — windows, posters, the LED strip, the closet and bathroom doors — carries a `wall: 'back' | 'right'` tag in `studio-layout.ts`. The renderer (`RoomObject`) then anchors it to that wall's plane instead of trusting its raw layout depth:
+
+- The wall planes (`WALL_BACK_INNER_Z`, `WALL_RIGHT_INNER_X`) are derived from the **same `ROOM_SCALE`** the wall meshes use, so a wall-mounted object moves with its wall if the room is ever resized — it can never drift loose.
+- `WALL_MOUNT_DEPTH[id]` is each model's distance from its own origin to its **wall-facing back face**. The anchor places the model so that back face sits `WALL_GAP` (0.01) proud of the wall's inner face and the object extends into the room — flush, never floating, never z-fighting. Because the offset is applied along the model's **local Z**, right-wall objects stay flush even though they are rotated a quarter turn.
+- The object's position *along* the wall and its height still come from the layout / model, so only the wall-normal distance is overridden. Orientation is the layout `rotationY`, so posters stay parallel to their wall.
+
+When adding a wall object, tag it with `wall` and give it a `WALL_MOUNT_DEPTH` entry equal to half its depth (or its origin-to-back distance for off-centre models); otherwise it falls back to a 0.05 default.
+
 ## 5. Placement rules (for adding objects)
 
 1. New objects must have an entry in **both** `studio-layout.ts` (position/size) and `interactions.ts` (behavior). A missing pair will crash label lookup.

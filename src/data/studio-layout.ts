@@ -1,16 +1,22 @@
-export type StudioObject = { id: string; x: number; y: number; width: number; height: number; color: string; shape?: 'rect' | 'window' | 'guitar' | 'light'; rotationY?: number };
+/**
+ * `wall` anchors an object to a room wall: its position along the wall (and its height) come from the
+ * layout, but its distance from the wall is derived from the wall plane in the renderer, so it stays
+ * flush no matter how the room is sized. Everything wall-mounted (windows, posters, shelves, the wall
+ * LED strip, the closet and bathroom doors on the right wall) carries this tag.
+ */
+export type StudioObject = { id: string; x: number; y: number; width: number; height: number; color: string; shape?: 'rect' | 'window' | 'guitar' | 'light'; rotationY?: number; wall?: 'back' | 'right' };
 
 /** Original bedroom-studio map. Coordinates preserve the required window → desk → bed/door composition. */
 export const STUDIO_OBJECTS: StudioObject[] = [
-  { id: 'window', x: 120, y: 70, width: 330, height: 132, color: '#31597a', shape: 'window' },
+  { id: 'window', x: 120, y: 70, width: 330, height: 132, color: '#31597a', shape: 'window', wall: 'back' },
   // Second window on the bed side of the room, mounted flat against the right wall.
-  { id: 'window2', x: 1168, y: 170, width: 100, height: 190, color: '#31597a', shape: 'window', rotationY: -Math.PI / 2 },
-  { id: 'posters', x: 460, y: 82, width: 100, height: 78, color: '#6d4056' },
-  { id: 'posters2', x: 635, y: 84, width: 100, height: 78, color: '#3a5a6d' },
-  { id: 'posters3', x: 788, y: 80, width: 100, height: 78, color: '#5c4a2e' },
-  { id: 'posters4', x: 329, y: 84, width: 100, height: 78, color: '#4a3550' },
-  { id: 'ledLights', x: 680, y: 62, width: 360, height: 22, color: '#b73545', shape: 'light' },
-  { id: 'shelves', x: 1040, y: 106, width: 112, height: 154, color: '#5e5560' },
+  { id: 'window2', x: 1168, y: 170, width: 100, height: 190, color: '#31597a', shape: 'window', rotationY: -Math.PI / 2, wall: 'right' },
+  { id: 'posters', x: 460, y: 82, width: 100, height: 78, color: '#6d4056', wall: 'back' },
+  { id: 'posters2', x: 635, y: 84, width: 100, height: 78, color: '#3a5a6d', wall: 'back' },
+  { id: 'posters3', x: 788, y: 80, width: 100, height: 78, color: '#5c4a2e', wall: 'back' },
+  { id: 'posters4', x: 329, y: 84, width: 100, height: 78, color: '#4a3550', wall: 'back' },
+  { id: 'ledLights', x: 680, y: 62, width: 360, height: 22, color: '#b73545', shape: 'light', wall: 'back' },
+  { id: 'shelves', x: 1040, y: 106, width: 112, height: 154, color: '#5e5560', wall: 'back' },
   { id: 'instrumentTable', x: 200, y: 250, width: 250, height: 180, color: '#5a4a4c' },
   { id: 'modularSynths', x: 238, y: 225, width: 170, height: 105, color: '#61455a' },
   { id: 'musicDesk', x: 492, y: 202, width: 350, height: 160, color: '#6c5b5c' },
@@ -24,6 +30,8 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'portasound', x: 215, y: 342, width: 154, height: 55, color: '#d8c6a4' },
   { id: 'sk5', x: 377, y: 348, width: 100, height: 48, color: '#aeb2b3' },
   { id: 'audioInterface', x: 752, y: 267, width: 54, height: 44, color: '#b73545' },
+  { id: 'mechanicalKeyboard', x: 612, y: 382, width: 112, height: 30, color: '#20242c' },
+  { id: 'mouse', x: 742, y: 382, width: 30, height: 28, color: '#343b48' },
   { id: 'lyricNotebook', x: 550, y: 350, width: 50, height: 38, color: '#e7e1d5' },
   { id: 'ashtray', x: 609, y: 357, width: 34, height: 26, color: '#8892a0' },
   { id: 'cigarettes', x: 651, y: 354, width: 46, height: 28, color: '#e8e2d6' },
@@ -31,13 +39,14 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'redBull', x: 744, y: 350, width: 26, height: 54, color: '#d05e55' },
   { id: 'pillBottle', x: 778, y: 350, width: 25, height: 42, color: '#d9b64d' },
   { id: 'cables', x: 422, y: 420, width: 96, height: 45, color: '#313a48' },
+  { id: 'guitarPedal', x: 438, y: 548, width: 58, height: 42, color: '#2c3440' },
   { id: 'switch', x: 526, y: 422, width: 76, height: 42, color: '#5d7a86' },
   { id: 'acousticGuitar', x: 280, y: 462, width: 62, height: 156, color: '#ba8653', shape: 'guitar' },
   { id: 'electricGuitar', x: 362, y: 464, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
   { id: 'bed', x: 1010, y: 250, width: 218, height: 168, color: '#54667d', rotationY: Math.PI / 2 },
   { id: 'bedPhone', x: 1075, y: 280, width: 34, height: 54, color: '#0c0e14' },
   { id: 'miniFridge', x: 921, y: 111, width: 86, height: 132, color: '#a8aeb6' },
-  { id: 'bathroom', x: 1192, y: 610, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2 },
+  { id: 'bathroom', x: 1192, y: 610, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
   { id: 'entrance', x: 200, y: 730, width: 112, height: 76, color: '#b73545' },
-  { id: 'closet', x: 1205, y: 380, width: 94, height: 162, color: '#465164', rotationY: -Math.PI / 2 },
+  { id: 'closet', x: 1205, y: 380, width: 94, height: 162, color: '#465164', rotationY: -Math.PI / 2, wall: 'right' },
 ];

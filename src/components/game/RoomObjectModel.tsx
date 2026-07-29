@@ -30,9 +30,11 @@ const GUITAR_EXTRUDE = { depth: 0.15, bevelEnabled: false };
  * Positions/sizes come from src/data/studio-layout.ts and are NOT changed here — only how each object is drawn.
  * Desk gear renders on a shared surface height so it reads as sitting on the desk (see docs/LevelDesign.md).
  */
-export const DESK_Y = 1.2;
+// Shared desktop anchor. Keeping this centralized lets every desk prop move as one setup.
+export const DESK_Y = 1.32;
+export const DESK_Z_OFFSET = -0.12;
 export const DESKTOP_IDS = new Set([
-  'dualMonitors', 'laptop', 'studioMonitors', 'audioInterface', 'lyricNotebook', 'ashtray', 'cigarettes', 'vodka', 'redBull', 'pillBottle', 'mic', 'phone',
+  'dualMonitors', 'laptop', 'studioMonitors', 'audioInterface', 'mechanicalKeyboard', 'mouse', 'lyricNotebook', 'ashtray', 'cigarettes', 'vodka', 'redBull', 'pillBottle', 'mic', 'phone',
 ]);
 
 /** Second table: synths/keyboards (every instrument except the guitars) sit on this surface. */
@@ -384,6 +386,17 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[0.22, 0.24, -0.06]}><sphereGeometry args={[0.02, 8, 8]} /><meshStandardMaterial color="#5fe08a" emissive="#5fe08a" emissiveIntensity={2} toneMapped={false} /></mesh>
     </group>;
 
+    case 'mechanicalKeyboard': return <group position={[0, DESK_Y, 0]}>
+      <mesh position={[0, 0.06, 0]} castShadow><boxGeometry args={[1.32, 0.1, 0.38]} /><meshStandardMaterial color="#20242c" roughness={0.55} /></mesh>
+      <KeyStrip y={0.12} width={1.2} />
+      <mesh position={[0, 0.14, -0.16]}><boxGeometry args={[1.15, 0.025, 0.05]} /><meshStandardMaterial color="#b73545" emissive="#47131d" emissiveIntensity={0.5} /></mesh>
+    </group>;
+
+    case 'mouse': return <group position={[0, DESK_Y, 0]}>
+      <mesh position={[0, 0.08, 0]} scale={[0.72, 1, 1]} castShadow><sphereGeometry args={[0.17, 10, 6]} /><meshStandardMaterial color="#343b48" roughness={0.42} /></mesh>
+      <mesh position={[0, 0.2, -0.02]}><boxGeometry args={[0.025, 0.02, 0.07]} /><meshStandardMaterial color="#d6a447" emissive="#d6a447" emissiveIntensity={1.2} /></mesh>
+    </group>;
+
     // Condenser mic on a small desk stand, with a record LED.
     case 'mic': return <group position={[0, DESK_Y, 0]}>
       <mesh position={[0, 0.03, 0]} castShadow><cylinderGeometry args={[0.14, 0.16, 0.06, 16]} /><meshStandardMaterial color="#20242c" metalness={0.4} roughness={0.4} /></mesh>
@@ -482,6 +495,13 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'cables': return <group>
       <mesh position={[0, 0.09, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.35, 0.08, 10, 24]} /><meshStandardMaterial color="#20242c" /></mesh>
       <mesh position={[0.12, 0.11, 0.12]} rotation={[Math.PI / 2, 0.5, 0]}><torusGeometry args={[0.25, 0.07, 10, 24]} /><meshStandardMaterial color="#2a2e36" /></mesh>
+    </group>;
+
+    case 'guitarPedal': return <group position={[0, 0.08, 0]}>
+      <mesh castShadow><boxGeometry args={[0.72, 0.16, 0.52]} /><meshStandardMaterial color="#2c3440" roughness={0.65} /></mesh>
+      <mesh position={[0, 0.1, -0.08]}><boxGeometry args={[0.18, 0.06, 0.12]} /><meshStandardMaterial color="#b73545" emissive="#b73545" emissiveIntensity={1.1} /></mesh>
+      <mesh position={[0, 0.15, 0.12]}><cylinderGeometry args={[0.1, 0.1, 0.07, 10]} /><meshStandardMaterial color="#d6a447" metalness={0.5} /></mesh>
+      <mesh position={[0.36, 0.12, 0.25]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.22, 0.025, 8, 20, Math.PI]} /><meshStandardMaterial color="#161a24" /></mesh>
     </group>;
 
     case 'switch': return <group position={[0, 0.06, 0]} rotation={[-Math.PI / 2 + 0.2, 0, 0]}>

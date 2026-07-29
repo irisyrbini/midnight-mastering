@@ -34,7 +34,13 @@ export function GameShell() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        const { phase, pause, resume } = useGameStore.getState();
+        const state = useGameStore.getState();
+        if (state.prompt) { state.dismissPrompt(); return; }
+        if (state.activeVideoId) { state.closeVideo(); return; }
+        if (state.friendMenuOpen) { state.closeFriendMenu(); return; }
+        if (state.dawOpen) { state.setDawOpen(false); return; }
+        if (state.activeLocationId === 'elevator' && state.elevatorTo === null) { state.exitElevator(); return; }
+        const { phase, pause, resume } = state;
         if (phase === 'playing') pause();
         else if (phase === 'paused') resume();
         return;
@@ -42,8 +48,8 @@ export function GameShell() {
       if (event.key === 'Enter') {
         event.preventDefault();
         const state = useGameStore.getState();
-        if (state.prompt) return; // the prompt has its own buttons; Enter must not double-fire behind it
-        if (state.activeLocationId === 'elevator') return; // riding / choosing a floor: use the floor buttons
+        if (state.prompt) { state.dismissPrompt(); return; }
+        if (state.activeLocationId === 'elevator') { if (state.elevatorTo === null) state.exitElevator(); return; }
         // Enter is the primary exit on each non-studio floor: the lobby and rooftop step into the
         // elevator; the hallway goes back into the studio (its elevator has its own button). Keeping
         // Enter bound means no exit can be stranded behind an off-screen prop or an overlay.
@@ -68,11 +74,19 @@ export function GameShell() {
     const move = () => {
       const running = pressed.has('shift');
       const boost = running ? RUN_MULTIPLIER : 1; // Shift to run
-      // Per-frame step in logical units, tuned to match the click-to-move walk speed.
-      const dx = ((pressed.has('arrowright') || pressed.has('d') ? 3.7 : 0) - (pressed.has('arrowleft') || pressed.has('a') ? 3.7 : 0)) * boost;
-      const dy = ((pressed.has('arrowdown') || pressed.has('s') ? 2.5 : 0) - (pressed.has('arrowup') || pressed.has('w') ? 2.5 : 0)) * boost;
       const store = useGameStore.getState();
       store.setRunning(running);
+      // Convert screen-relative input through the current orbit yaw. Up always
+      // means toward the top of the screen, even after the camera is rotated.
+      // The screen basis is camera-facing, so invert the raw world-facing
+      // signs: arrow-up is screen-up, not movement toward the camera.
+      const horizontal = ((pressed.has('arrowleft') || pressed.has('a') ? 3.7 : 0) - (pressed.has('arrowright') || pressed.has('d') ? 3.7 : 0)) * boost;
+      const vertical = ((pressed.has('arrowup') || pressed.has('w') ? 2.5 : 0) - (pressed.has('arrowdown') || pressed.has('s') ? 2.5 : 0)) * boost;
+      const yaw = store.cameraYaw;
+      const forward = { x: -Math.sin(yaw), z: -Math.cos(yaw) };
+      const right = { x: -Math.cos(yaw), z: Math.sin(yaw) };
+      const dx = right.x * horizontal + forward.x * vertical;
+      const dy = right.z * horizontal + forward.z * vertical;
       if (dx || dy) store.movePlayer({ x: dx, y: dy });
       frame = requestAnimationFrame(move);
     };
