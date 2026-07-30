@@ -72,11 +72,38 @@ environmental storytelling, never dramatic transformation:
 
 Nothing should loudly congratulate the player. The world **quietly acknowledges their persistence.**
 
+## The deeper truth (guiding philosophy — Bible only, never spoken in-game)
+
+The game is not about productivity, fame, or winning. It is about **rediscovering yourself through
+creation.** Creative work is the *language* through which the player reconnects with who they are.
+
+And the correction to an earlier assumption: it is **not** "creativity heals you." It is —
+
+> **Love is what heals. Creativity is how you remember it.**
+
+Not romantic love. Love for yourself, for making things, from friends, from music, from small routines,
+from the room you've spent years inside. The environments — the bedroom, the rooftop at sunrise, the
+hallway, the pacing, the music — are not about output. They are about **belonging.**
+
+The closing line of the whole design — **"We don't create because we're happy. We become happy because
+we continue to create."** — is the north star every mechanic, environment beat, chapter, and artist
+collaboration must be able to trace back to. **Never say it in dialogue** (too explicit); let the game
+*be* it.
+
+**The title is both a request and a promise.** At the start, *Make Me Happy Again* reads as a plea —
+*please make me happy again.* By the end it should land as a realization — *I can make myself happy
+again.* Not that happiness is permanent, but that it can always be rebuilt.
+
 ## Emotional progression
 
-The journey is **not** Sad → Happy. It is:
+The journey is **not** Sad → Happy, and "Happy Again" is **not a reward** — it is an emotional
+realization the player arrives at. The full arc:
 
-**Uncertain → Present → Comfortable → Hopeful → Ready to continue.**
+**Disconnected → Safe → Present → Creative → Connected → Hopeful → Happy Again.**
+
+(Shorthand used elsewhere in the docs — *Uncertain → Present → Comfortable → Hopeful → Ready to
+continue* — is the same arc compressed; the seven-stage version above is canonical, and note that
+**Connected** precedes **Hopeful**: love and belonging come before hope, not after.)
 
 ## Game-loop philosophy
 
@@ -109,14 +136,23 @@ guitar picks · notes in notebook margins.
 
 ## End of a chapter
 
-Do **not** present the ending as victory. Present it as **completion.** The ending should feel quiet.
-An emotional structure to aim for:
+Do **not** present the ending as victory. Present it as **completion**, and even more than completion,
+as **recognition.** The ending should feel quiet, and **nothing should reset** — the coffee cup, the
+notebook, the guitar, the sticky notes, the worn chair, everything the player touched over the chapter
+is still there. The room the player built stays built.
 
-> the music finishes · morning arrives · silence · then —
+The structure to aim for:
+
+> the final song fades · morning light fills the room · the player looks around at everything, still
+> there · a long pause · then —
 >
-> **"The work is finished."**  *(pause)*  **"But your story isn't."**
+> **"You didn't just finish a chapter."**  *(pause)*  **"You found a part of yourself waiting for you."**
+>
+> then the title appears one last time — **Make Me Happy Again** — its meaning now changed from plea to
+> realization.
 
-The next chapter is not a sequel. It is **another opportunity to create.**
+No confetti, no fanfare, no "you win," no score. The next chapter is not a sequel; it is **another
+opportunity to create.**
 
 ## Long-term IP
 

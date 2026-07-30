@@ -62,9 +62,13 @@ instructed.** No pep talks, no life lessons, no "have you tried…".
 
 Endings are **completion, not victory.** Keep them quiet.
 
-- **Finished:** the record is done and the producer is present enough to know it. Aim for the structure:
-  the music finishes → morning arrives → silence → then *"The work is finished."* (pause) *"But your
-  story isn't."* Release, not triumph; the next chapter is another opportunity to create, not a sequel.
+- **Finished:** the record is done and the producer is present enough to know it. **Nothing resets** —
+  every object the player touched (coffee cup, notebook, guitar, sticky notes, worn chair) is still
+  there. Structure: the final song fades → morning light fills the room → the player looks around at it
+  all → a long pause → *"You didn't just finish a chapter."* (pause) *"You found a part of yourself
+  waiting for you."* → the title returns, its meaning shifted from plea to realization. Recognition,
+  not triumph; no confetti or score. The next chapter is another opportunity to create, not a sequel.
+  (See [Vision.md](Vision.md) §"End of a chapter" for the canonical wording.)
 - **Unfinished night (the "collapse" state in code):** the producer runs out of tonight and can't
   continue. Gentle, non-punishing; the restart is an invitation to come back, never a game-over sting.
 
