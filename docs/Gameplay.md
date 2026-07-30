@@ -122,8 +122,22 @@ The album can only be **finished once every musical instrument has been used** �
 
 ## 6. Endings (M3)
 
-- **Win — Finished:** `albumCompleted` → win overlay.
-- **Lose — Collapse:** wellbeing bottoms out (sustained critical needs) → collapse overlay.
-- Both endings pause the sim and offer restart. Pause (`Esc`) halts time without ending the run.
+Framed as **completion vs. an unfinished night**, never win vs. lose (see [Story.md](Story.md) §7 and [Vision.md](Vision.md)):
+
+- **Finished:** `albumCompleted` → a quiet completion overlay ("the work is finished, but your story isn't"). Not a triumphant win screen.
+- **Unfinished night (`collapse` in code):** wellbeing bottoms out (sustained critical needs) → a gentle overlay framed as the night ending and an invitation to return, not a game-over.
+- Both endings pause the sim and offer restart/continue. Pause (`Esc`) halts time without ending the run.
 
 Detailed thresholds live in the store and are documented alongside the ending logic.
+
+## 7. Game-loop philosophy (binding)
+
+Mechanics exist to serve the feeling in [Vision.md](Vision.md), not to drive engagement. Every loop should quietly communicate:
+
+- **Small actions matter.** A single interaction is meaningful; the game never demands a streak or an optimal rotation.
+- **Creative work grows slowly.** Album progress is gradual by design; there is no fast path and no reason to rush.
+- **Rest is productive.** Sleeping, eating, opening the window and leaving the room advance wellbeing, which is *required* to finish — rest is not lost time.
+- **Reflection has value.** Idle presence (ambient thoughts, looking out the window) is a valid way to play.
+- **Finishing something is enough.** Completion, not perfection or optimization, is the whole reward.
+
+Never add mechanics that reward talent over persistence, encourage grinding/competition/optimization, or pressure the player toward productivity. If a mechanic doesn't bring the player closer to creative peace, it does not belong (see [Vision.md](Vision.md) §"The one question").

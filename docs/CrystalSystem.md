@@ -12,7 +12,7 @@ Seven `EmotionalVariable` nodes, each in one of three states — `low`, `steady`
 
 `loneliness · burnout · hope · love · obsession · addiction · creativeFlow`
 
-**Initial state** (`INITIAL_EMOTIONAL_GRAPH`): loneliness `high`, burnout `steady`, hope `low`, love `low`, obsession `steady`, addiction `low`, creativeFlow `low`. The producer starts isolated and low on hope — the game is about moving out of that.
+**Initial state** (`INITIAL_EMOTIONAL_GRAPH`): loneliness `high`, burnout `steady`, hope `low`, love `low`, obsession `steady`, addiction `low`, creativeFlow `low`. The producer starts **uncertain** — the crystal traces the arc toward *ready to continue* (Uncertain → Present → Comfortable → Hopeful → Ready; see [Vision.md](Vision.md) / [Story.md](Story.md)). These node names are internal system inputs, not the game's subject: the game is about finishing an unfinished dream, not about a clinical state.
 
 ## 3. Propagation
 

@@ -4,15 +4,15 @@
 
 ## 1. Visual thesis
 
-An original nocturnal emotional simulation. It should feel like being awake after everyone has gone home: private, cluttered, tender, slightly unreal, cozy in the immediate workspace, dystopian beyond the windows. Warm human focus inside a cool, sleeping world.
+An original nocturnal simulation about an unfinished dream (see [Vision.md](Vision.md)). It should feel like being awake after everyone has gone home: private, cluttered, tender, slightly unreal, cozy in the immediate workspace, dystopian beyond the windows. Warm human focus inside a cool, sleeping world. The room is the player's **silent companion** — it should grow subtly warmer and more alive as creative work progresses (never a dramatic transformation), and it never loudly congratulates the player.
 
 ### Non-negotiable rules
 
 1. One warm emotional anchor surrounded by blue-black nocturne, every scene.
 2. Legibility through hierarchy — interaction targets and status read immediately.
-3. Stylized material truth — objects look touched, used, specific.
-4. Stillness carries emotion — big moves/effects need narrative weight.
-5. Never literalize distress as horror.
+3. Stylized material truth — objects look touched, used, specific; the room is an **archive of creation** (accumulating memories, not decoration).
+4. Stillness carries emotion — big moves/effects need narrative weight. The world **whispers, never shouts.**
+5. Never literalize an emotional state as horror.
 
 ## 2. Camera (fixed contract)
 
@@ -56,6 +56,7 @@ Semi-realistic anime-inspired 2.5D night interior: soft painterly surfaces, clea
 
 - Objects: rounded believable proportions, slightly exaggerated silhouettes, modular families (`hero / interactive / set-dressing / consumable / story-token`). Active object gets rim/outline on focus only.
 - Character: contemporary, non-celebrity, emotionally grounded; silhouette and posture over facial realism; slightly large hands for music-making readability; no chibi, no fashion elongation. State shown through pose tempo, head angle, lighting — never exaggerated distress.
+- **Progression is subtle and cumulative, not celebratory.** As the work advances, let the room warm gradually — morning light reaching farther, plants growing, small objects and memories accumulating, birds outside, ambient sound shifting. Reward completion and persistence with quiet acknowledgement; never a fanfare, confetti burst, or "you win" flourish.
 
 ## 7. UI, type, icons
 

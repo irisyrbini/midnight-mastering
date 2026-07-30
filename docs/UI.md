@@ -6,6 +6,8 @@
 
 A **quiet instrument panel embedded in the room** (see [ArtBible.md](ArtBible.md) §8): smoke-tinted glass panels, thin paper-bone borders, monospace numerics. Panels use `bg-night/80–90` with `border-paper/40` and `backdrop-blur`. Persistent status lives in a **left rail**; time/context in an **upper-right card**; the center stays clear for the room.
 
+**Philosophy (see [Vision.md](Vision.md)): less UI, more atmosphere.** Prefer environmental storytelling over on-screen text; let the room say what a HUD element would. Copy **whispers, never shouts** — no motivational lines, no "You can do it!", no reward pop-ups or XP toasts. When the game acknowledges progress, it does so quietly and in-world, not through celebratory UI.
+
 ## 2. Persistent HUD (`GameHud.tsx`)
 
 - **Title header (top center):** in-game title *Make Me Happy Again* + objective line.
@@ -29,7 +31,7 @@ Needs bars show raw need numbers. The crystal card also shows an **emotional-sta
 ## 5. Session-frame overlays (M3)
 
 - **Pause overlay:** shown when `phase === 'paused'` (via `Esc`). Resume + restart. Simulation is frozen because `tick` early-returns unless `phase === 'playing'`.
-- **Ending overlay:** win ("Finished") and collapse ("Collapse") states, each with a short line of authored text and a restart action.
+- **Ending overlay:** framed as **completion, not victory** (see [Story.md](Story.md) §7). "Finished" is a quiet completion ("the work is finished, but your story isn't"), and the unfinished-night ("collapse") state is a gentle invitation to return — each a short line of authored text and a restart/continue action, never a triumphant win-screen or a game-over sting.
 
 ## 6. Rules for adding UI
 

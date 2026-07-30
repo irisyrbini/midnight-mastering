@@ -4,77 +4,133 @@
 > document says *what the game is*, this one says *why it exists* and *what it must never become*.
 > Every other doc (GDD, Art Bible, Gameplay, Level Design, UI, Story) is downstream of this one and
 > must stay consistent with it. If a proposed change conflicts with anything here, the change is wrong.
+>
+> **Current philosophy: Patch 0.2 — the game is about unfinished dreams, not depression.** Earlier
+> drafts framed this as a mental-health / "stay well enough to finish" story. That framing is
+> superseded. Reframe language accordingly wherever it still lingers.
 
-## Project vision
+## Core vision
 
-This is not just a life-simulation game.
+The game is **not about depression.** The game is about **unfinished dreams.**
 
-It is an **evolving creative platform** where every chapter represents an artist, their emotional world,
-and a complete audiovisual experience.
+It exists for anyone who has quietly carried a creative project, an idea, or a dream that never felt
+finished.
 
-The player is not trying to "win." The player is trying to **finish something meaningful**.
+The emotional goal is not **healing**. The emotional goal is **permission**:
 
-The game exists for everyone who has silently built something alone:
+- Permission to continue.
+- Permission to create imperfectly.
+- Permission to finish one chapter.
 
-- Bedroom producers
-- Independent musicians
-- Illustrators
-- Film directors
-- Designers
-- Developers
-- Writers
+## Mission
 
-Every creative person who has spent countless nights inside a room chasing a dream.
+Create a peaceful interactive space where players **remember why they started creating in the first
+place.**
 
-Completing a chapter symbolizes **finishing a creative journey, not defeating an enemy.** Each completed
-chapter restores hope.
+The game must **never pressure players into productivity.** Instead it gently invites them back to
+their own creative work. The player should finish the game *wanting to close the game* and continue
+something meaningful in real life.
 
-The game should feel **calm, intimate, melancholic, and emotionally rewarding.**
+## Player promise
 
-**Never** introduce mechanics that encourage grinding, competition, violence, or excessive optimization.
-Every mechanic should support **creativity, reflection, routine, and emotional progression.**
+Players should leave feeling:
 
-## Long-term IP
+- "I can finish one more page."
+- "I can write one more song."
+- "I can open my laptop again."
+- "I don't have to become someone else before I create."
 
-**The game itself is the main intellectual property.** Artists are guests inside this universe.
+## Target audience
 
-Each artist receives their own **chapter**. Each chapter contains:
+The game is **not** aimed narrowly at depression, loneliness, or anxiety. It is for every quiet maker:
 
-- a unique room or environment
-- original music
-- a visual identity
-- collectible memories
-- story moments
-- album-visualizer sequences
-- a playable emotional journey
+bedroom producers · independent musicians · illustrators · filmmakers · developers · writers ·
+students · researchers · night workers · **anyone quietly building something meaningful.**
 
-The first chapter introduces **MMHA** (*Make Me Happy Again*). Future chapters will introduce other
-independent artists while preserving **one cohesive universe**.
+Wherever older text targets "depression / loneliness / anxiety," broaden it to this creative audience.
 
 ## Design philosophy
 
-- Less UI. **More atmosphere.**
-- Less exposition. **More environmental storytelling.**
-- The room itself tells the story.
-- Lighting communicates emotion.
-- Music drives progression.
-- Small interactions should feel meaningful.
-- Nothing should exist only as decoration — everything should reinforce the emotional state of the player.
+- Do **not** reward talent. **Reward persistence.**
+- Do **not** celebrate perfection. **Celebrate completion.**
+- Do **not** encourage optimization. **Encourage presence.**
+- Do **not** pressure players. **Offer permission.**
+- Less UI, more atmosphere. Less exposition, more environmental storytelling.
+- Nothing exists only as decoration — everything reinforces the player's emotional state.
 
-## Player emotion
+## Room philosophy
 
-The player should feel:
+The room is not merely a location. **The room is the player's silent companion.** As creative work
+progresses it should become **gradually warmer, calmer, and more alive** — through *subtle*
+environmental storytelling, never dramatic transformation:
 
-- "I am not alone."
-- "I can finish this."
-- "My room is enough."
-- "My creativity has value."
-- "My chapter matters."
+- morning light reaching a little farther
+- plants slowly growing
+- objects naturally accumulating
+- birds appearing outside
+- small ambient sounds changing
 
-## The core rule
+Nothing should loudly congratulate the player. The world **quietly acknowledges their persistence.**
 
-Whenever adding new content, ask:
+## Emotional progression
 
-> **Does this make the player feel closer to creative peace?**
+The journey is **not** Sad → Happy. It is:
+
+**Uncertain → Present → Comfortable → Hopeful → Ready to continue.**
+
+## Game-loop philosophy
+
+Every loop should communicate:
+
+- Small actions matter.
+- Creative work grows slowly.
+- Rest is productive.
+- Reflection has value.
+- **Finishing something is enough.**
+
+## Writing style
+
+- Avoid motivational language. Avoid self-help language. Never tell players how they should feel.
+- Write as if **the world understands them.** Replace "You can do it!" with environmental reassurance.
+- The game should **whisper, not shout.**
+
+## Dialogue principles
+
+NPCs should **rarely give advice.** Instead they **share experiences.** Players should feel
+*understood*, not *instructed*.
+
+## Environmental storytelling
+
+The room should become **evidence that a life has been lived** — an **archive of creation.** Instead of
+XP or reward pop-ups, leave subtle memories:
+
+coffee stains · sticky notes · used sketchbooks · old train tickets · polaroids · cassette tapes ·
+guitar picks · notes in notebook margins.
+
+## End of a chapter
+
+Do **not** present the ending as victory. Present it as **completion.** The ending should feel quiet.
+An emotional structure to aim for:
+
+> the music finishes · morning arrives · silence · then —
+>
+> **"The work is finished."**  *(pause)*  **"But your story isn't."**
+
+The next chapter is not a sequel. It is **another opportunity to create.**
+
+## Long-term IP
+
+This project is an **evolving interactive album platform.** The **game itself is the permanent
+universe**; artists become **chapters** within it — each artist one emotional world (unique
+room/environment, original music, visual identity, collectible memories, story moments,
+album-visualizer sequences, a playable emotional journey). Chapter 1 is **MMHA** (*Make Me Happy
+Again*). Maintain **one cohesive emotional identity** across every future collaboration.
+
+## The one question
+
+Before implementing any new mechanic, feature, story beat, UI element, animation, or interaction,
+always ask:
+
+> **Does this help the player feel closer to creative peace?**
 
 If the answer is no, **do not implement it.**

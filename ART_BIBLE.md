@@ -8,7 +8,7 @@ The attached scene is the direction reference for **visual qualities only**. Fut
 
 ## 1. Visual thesis
 
-*Midnight Mastering* is an original nocturnal emotional simulation about an isolated producer trying to complete an album without losing contact with themself. The image should feel like being awake after everyone else has gone home: private, cluttered, tender, slightly unreal, physically lived-in, cozy in its immediate workspace, and dystopian beyond its windows.
+*Midnight Mastering* is an original nocturnal simulation about **an unfinished dream** — a bedroom producer giving themself permission to complete one album, one chapter at a time (see `docs/Vision.md`, the project north star). It is not about depression or healing; it is about persistence, presence, and finishing something. The image should feel like being awake after everyone else has gone home: private, cluttered, tender, slightly unreal, physically lived-in, cozy in its immediate workspace, and dystopian beyond its windows. The room is the player's **silent companion**, warming subtly as the work grows.
 
 The provided reference establishes the desired **mood language**—an intimate overhead room, cold night around warm creative light, dense music-making objects, and quiet personal stakes. It is not a source for copied layouts, characters, objects, UI, symbols, or scenes.
 
@@ -18,7 +18,7 @@ The provided reference establishes the desired **mood language**—an intimate o
 2. **Legibility through hierarchy, not emptiness.** Rooms may be layered and lived-in, but interaction targets and player status must read immediately.
 3. **Stylized material truth.** Objects must look touched, used, repaired, and specific; avoid sterile tech-demo surfaces.
 4. **Stillness carries emotion.** The visual system is restrained. A flashing alert, large camera move, or intense effect must have narrative weight.
-5. **Never literalize distress as horror.** Mental-health states use light, rhythm, density, and sound-adjacent visual metaphor—not monsters, body distortion, or shock imagery.
+5. **Never literalize an emotional state as horror.** Emotional and creative states use light, rhythm, density, and sound-adjacent visual metaphor—not monsters, body distortion, or shock imagery. The world **whispers, never shouts**, and never loudly congratulates the player.
 
 ## 2. Camera angle and perspective
 
