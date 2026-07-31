@@ -6,7 +6,7 @@
 
 A **quiet instrument panel embedded in the room** (see [ArtBible.md](ArtBible.md) §8): smoke-tinted glass panels, thin paper-bone borders, monospace numerics. Panels use `bg-night/80–90` with `border-paper/40` and `backdrop-blur`. Persistent status lives in a **left rail**; time/context in an **upper-right card**; the center stays clear for the room.
 
-**Philosophy (see [Vision.md](Vision.md)): less UI, more atmosphere.** Prefer environmental storytelling over on-screen text; let the room say what a HUD element would. Copy **whispers, never shouts** — no motivational lines, no "You can do it!", no reward pop-ups or XP toasts. When the game acknowledges progress, it does so quietly and in-world, not through celebratory UI.
+**Philosophy — two complementary layers (Patch 0.2.1, see [Vision.md](Vision.md) §"HUD & feedback").** The HUD stays and **keeps its numbers** (crystal %, album %, need values, time, weather, save) — it *explains*. The **world** *makes the player feel*, so every stat also has an environmental expression and the HUD and world must **always agree, never contradict** (both read the same store). The goal is that a player who never looks at the HUD still knows how they feel. So: keep the readouts, but let the HUD **recede** (fade while walking; relevant elements reappear on interaction — album while producing, needs on eat/sleep) and add the world layer per [audits/PATCH_0.2.1_FEEDBACK_AUDIT.md](audits/PATCH_0.2.1_FEEDBACK_AUDIT.md). Copy still **whispers, never shouts** — no motivational lines, no reward pop-ups or XP toasts; celebratory UI (confetti win-screens) is out. An **optional Immersive Mode** leans on the world layer; the standard HUD is the default.
 
 ## 2. Persistent HUD (`GameHud.tsx`)
 

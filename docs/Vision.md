@@ -55,8 +55,30 @@ Wherever older text targets "depression / loneliness / anxiety," broaden it to t
 - Do **not** celebrate perfection. **Celebrate completion.**
 - Do **not** encourage optimization. **Encourage presence.**
 - Do **not** pressure players. **Offer permission.**
-- Less UI, more atmosphere. Less exposition, more environmental storytelling.
+- Less UI *shouting*, more atmosphere — the HUD stays, but it recedes and the world carries the feeling (see "HUD & feedback" below). Less exposition, more environmental storytelling.
 - Nothing exists only as decoration — everything reinforces the player's emotional state.
+
+## HUD & feedback (Patch 0.2.1)
+
+This is still a game, and progress should feel legible. **Numbers are not the enemy; over-reliance on
+them is.** The game communicates through **two complementary layers that must always agree:**
+
+1. **Mechanical feedback (HUD)** — *explains.* Keep it, and keep the numeric values: crystal %, album
+   progress, need values, time, weather, save indicators. Players who enjoy stats keep clear readouts.
+2. **Emotional feedback (World)** — *makes the player feel.* Every important stat also has an
+   environmental expression, so **a player who never looks at the HUD still understands their state.**
+
+**Invariant:** the HUD and the world can never contradict — both read the same store values, so if
+Stress = 78 the HUD shows 78% *and* the producer slouches, the music softens, the crystal dims, the desk
+gets messier. The HUD confirms what the world is already saying.
+
+**HUD recedes contextually** rather than sitting on permanently: it fades a few seconds after the player
+starts walking; relevant elements reappear on interaction (album while producing, needs while
+eating/sleeping — a peaceful nightly summary on sleep). Clean screen, no lost clarity.
+
+**Optional Immersive Mode** (a setting; default is the standard HUD): keeps contextual prompts, pause and
+inventory info, but leans on environmental storytelling for state. The two play styles — mechanical and
+immersive — must each be complete; neither diminishes the other.
 
 ## Room philosophy
 

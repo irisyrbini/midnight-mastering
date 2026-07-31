@@ -99,6 +99,11 @@ is core philosophy and essentially unimplemented.
 
 ## 6. UI — game-like → peaceful
 
+> **Superseded by Patch 0.2.1 (see [PATCH_0.2.1_FEEDBACK_AUDIT.md](PATCH_0.2.1_FEEDBACK_AUDIT.md)).** Do
+> **not** drop the numeric readouts. Keep the HUD and its numbers as the *mechanical* layer; instead add
+> a complementary *world* layer and let the HUD **recede contextually**. The recommendations below are
+> kept for history but re-read them as "quiet / auto-hide," not "remove numbers."
+
 Everything in `GameHud.tsx` currently reads as a management sim. Recommendations, in order:
 
 - **Auto-hide the HUD during quiet play** (fade in only on interaction or input); default to an almost
