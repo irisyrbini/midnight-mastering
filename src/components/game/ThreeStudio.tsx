@@ -75,8 +75,12 @@ const LOBBY_TARGET: [number, number, number] = [0, 1.5, -0.8];
 const ROOFTOP_CAM: [number, number, number] = [0, 8.2, 10.5];
 const ROOFTOP_TARGET: [number, number, number] = [0, 1.0, -1.5];
 
-const CLOTH = '#161a24';
-const CLOTH_DARK = '#0e111a';
+// Player palette. Kept moody and dark, but lifted off pure black so the producer no longer merges into
+// the night room: the hoodie is a readable dark blue-gray, the pants a darker separated blue-gray, and
+// the shoes stay near-black. `SKIN` is a muted warm tone for the hands.
+const CLOTH = '#333d52'; // hoodie + hood
+const CLOTH_DARK = '#1e2432'; // pants, separated in value from the hoodie
+const SKIN = '#caa688'; // hands (understated warmth, low-poly to match NPC2)
 
 type GrooveRefs = {
   torso: RefObject<THREE.Group | null>;
@@ -150,19 +154,38 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0 }: { 
     {/* Voxel-like hoodie: low-poly, squared planes and deliberately visible block proportions. */}
     <mesh position={[0, 0.38, 0]} castShadow><boxGeometry args={[0.62, 0.76, 0.38]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
     <mesh position={[0, 0.77, 0.02]} castShadow><boxGeometry args={[0.72, 0.22, 0.44]} /><meshStandardMaterial color="#202633" roughness={0.95} /></mesh>
-    {/* Arms hinge at the shoulder with a second joint at the elbow, so they can swing and the forearms can sweep. */}
+    {/* warm hoodie drawstring on the chest — the one subtle signature accent (front is −z). */}
+    <mesh position={[-0.05, 0.58, -0.185]}><cylinderGeometry args={[0.012, 0.012, 0.17, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
+    <mesh position={[0.05, 0.6, -0.185]}><cylinderGeometry args={[0.012, 0.012, 0.14, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
+    <mesh position={[-0.05, 0.49, -0.185]}><boxGeometry args={[0.03, 0.035, 0.02]} /><meshStandardMaterial color="#b0904f" /></mesh>
+    <mesh position={[0.05, 0.52, -0.185]}><boxGeometry args={[0.03, 0.035, 0.02]} /><meshStandardMaterial color="#b0904f" /></mesh>
+    {/* Arms hinge at the shoulder with a second joint at the elbow, so they can swing and the forearms can sweep.
+        Each forearm ends in a simple sphere hand (low-poly, matching NPC2) for readability while playing/holding. */}
     <group ref={armL} position={[-0.43, 0.66, 0.02]} rotation={[0.05, 0, 0.12]}>
       <mesh position={[0, -0.16, 0]} castShadow><boxGeometry args={[0.18, 0.32, 0.2]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
-      <group ref={foreL} position={[0, -0.32, 0]}><mesh position={[0, -0.14, 0]} castShadow><boxGeometry args={[0.17, 0.29, 0.19]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh></group>
+      <group ref={foreL} position={[0, -0.32, 0]}>
+        <mesh position={[0, -0.14, 0]} castShadow><boxGeometry args={[0.17, 0.29, 0.19]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
+        <mesh position={[0, -0.3, 0]} castShadow><sphereGeometry args={[0.078, 10, 8]} /><meshStandardMaterial color={SKIN} roughness={0.85} /></mesh>
+      </group>
     </group>
     <group ref={armR} position={[0.43, 0.66, 0.02]} rotation={[0.05, 0, -0.12]}>
       <mesh position={[0, -0.16, 0]} castShadow><boxGeometry args={[0.18, 0.32, 0.2]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
-      <group ref={foreR} position={[0, -0.32, 0]}><mesh position={[0, -0.14, 0]} castShadow><boxGeometry args={[0.17, 0.29, 0.19]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh></group>
+      <group ref={foreR} position={[0, -0.32, 0]}>
+        <mesh position={[0, -0.14, 0]} castShadow><boxGeometry args={[0.17, 0.29, 0.19]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
+        <mesh position={[0, -0.3, 0]} castShadow><sphereGeometry args={[0.078, 10, 8]} /><meshStandardMaterial color={SKIN} roughness={0.85} /></mesh>
+      </group>
     </group>
     <mesh position={[0, 0.38, -0.205]}><boxGeometry args={[0.055, 0.62, 0.025]} /><meshStandardMaterial color="#05070c" metalness={0.35} /></mesh>
     {/* Square head inset inside a raised hood, pivoted at the neck so it can nod and turn. */}
     <group ref={head} position={[0, 0.8, 0]}>
       <mesh position={[0, 0.23, -0.08]} castShadow><boxGeometry args={[0.34, 0.38, 0.31]} /><meshStandardMaterial color="#4b3b3d" roughness={0.95} /></mesh>
+      {/* Messy low-poly hair peeking from the hood opening — small tufts at the fringe and temples so the
+          head reads as a person (even from behind) without growing the hood silhouette. */}
+      <mesh position={[0, 0.44, -0.12]} rotation={[0.32, 0, 0]} castShadow><boxGeometry args={[0.3, 0.06, 0.09]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
+      <mesh position={[-0.06, 0.47, -0.09]} rotation={[0.45, 0.25, 0.12]}><boxGeometry args={[0.07, 0.09, 0.06]} /><meshStandardMaterial color="#2b2530" roughness={1} /></mesh>
+      <mesh position={[0.07, 0.46, -0.09]} rotation={[0.4, -0.2, -0.15]}><boxGeometry args={[0.06, 0.08, 0.06]} /><meshStandardMaterial color="#2b2530" roughness={1} /></mesh>
+      <mesh position={[-0.15, 0.34, -0.05]} rotation={[0.15, 0, 0.35]}><boxGeometry args={[0.07, 0.13, 0.08]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
+      <mesh position={[0.15, 0.34, -0.05]} rotation={[0.15, 0, -0.35]}><boxGeometry args={[0.07, 0.13, 0.08]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
       <mesh position={[0, 0.27, 0.07]} castShadow><boxGeometry args={[0.55, 0.58, 0.5]} /><meshStandardMaterial color={cloth} roughness={0.98} /></mesh>
       <mesh position={[0, 0.22, -0.24]}><boxGeometry args={[0.38, 0.38, 0.08]} /><meshStandardMaterial color="#2a2d36" /></mesh>
       {/* Pixel headphones: squared band and chunky ear cups over the raised hood. */}
@@ -216,7 +239,7 @@ function WalkingFigure() {
   const phase = useRef(0);
   const facing = useRef(0);
   const swing = useRef(0);
-  useFrame((_, dt) => {
+  useFrame(({ clock }, dt) => {
     const p = useGameStore.getState().playerPosition;
     const [x, z] = toWorld(p.x, p.y);
     if (!last.current.ready) last.current = { x, z, ready: true };
@@ -236,8 +259,23 @@ function WalkingFigure() {
     swing.current += (targetSwing - swing.current) * Math.min(1, dt * 12);
     if (figure.current) figure.current.rotation.y = facing.current;
     if (bob.current) {
-      bob.current.position.y = moving ? Math.abs(Math.sin(phase.current)) * Math.min(0.09, 0.03 + speed * 0.006) : 0;
-      bob.current.rotation.x += ((moving ? -0.16 : 0) - bob.current.rotation.x) * Math.min(1, dt * 10); // lean forward while walking
+      if (moving) {
+        bob.current.position.y += (Math.abs(Math.sin(phase.current)) * Math.min(0.09, 0.03 + speed * 0.006) - bob.current.position.y) * Math.min(1, dt * 12);
+        bob.current.rotation.x += (-0.16 - bob.current.rotation.x) * Math.min(1, dt * 10); // lean forward while walking
+        bob.current.rotation.z += (0 - bob.current.rotation.z) * Math.min(1, dt * 8);
+        bob.current.rotation.y += (0 - bob.current.rotation.y) * Math.min(1, dt * 8);
+      } else {
+        // Subtle idle life — the producer is alive, not restless. Slow breathing, a barely-there weight
+        // shift, and a small settling drift, all on long/irregular periods so nothing loops obviously.
+        const et = clock.elapsedTime;
+        const breath = 0.004 + Math.sin(et * 1.25) * 0.008; // gentle rise/fall of the chest/shoulders
+        const sway = Math.sin(et * 0.21) * 0.017 + Math.sin(et * 0.083 + 1.3) * 0.011; // weight shift
+        const settle = Math.sin(et * 0.15 + 0.6) * 0.04; // very small head/upper drift
+        bob.current.position.y += (breath - bob.current.position.y) * Math.min(1, dt * 3);
+        bob.current.rotation.x += (0 - bob.current.rotation.x) * Math.min(1, dt * 4);
+        bob.current.rotation.z += (sway - bob.current.rotation.z) * Math.min(1, dt * 2.5);
+        bob.current.rotation.y += (settle - bob.current.rotation.y) * Math.min(1, dt * 2.5);
+      }
     }
     if (legL.current) legL.current.rotation.x = swing.current;
     if (legR.current) legR.current.rotation.x = -swing.current;
@@ -500,15 +538,15 @@ function FriendTorso({ hipY, sipping = false, groove = false }: { hipY: number; 
   // Offset a beat behind the producer so the pair reads as two people vibing, not one mirrored figure.
   useGroove(groove, { torso, head, armL, armR, foreL, foreR }, { hipY, shoulderY: 0.98, armX: 0.12, armZ: 0.12 }, 0.9);
   return <group ref={torso} position={[0, hipY, 0]}>
-    <mesh position={[0, 0.54, 0]} castShadow><boxGeometry args={[0.46, 1.08, 0.3]} /><meshStandardMaterial color="#12161e" roughness={0.96} /></mesh>
+    <mesh position={[0, 0.54, 0]} castShadow><boxGeometry args={[0.46, 1.08, 0.3]} /><meshStandardMaterial color="#232a24" roughness={0.96} /></mesh>
     {/* Long arms hinge at the shoulder and elbow, so they stay attached standing, seated, sipping and grooving. */}
     <group ref={armL} position={[-0.29, 0.98, -0.03]} rotation={[sipping ? -0.7 : 0.12, 0, sipping ? -0.22 : -0.12]}>
-      <mesh position={[0, -0.16, 0]} castShadow><capsuleGeometry args={[0.055, 0.26, 4, 8]} /><meshStandardMaterial color="#12161e" /></mesh>
-      <group ref={foreL} position={[0, -0.34, 0]} rotation={[sipping ? -0.85 : 0, 0, 0]}><mesh position={[0, -0.15, 0]} castShadow><capsuleGeometry args={[0.05, 0.22, 4, 8]} /><meshStandardMaterial color="#12161e" /></mesh></group>
+      <mesh position={[0, -0.16, 0]} castShadow><capsuleGeometry args={[0.055, 0.26, 4, 8]} /><meshStandardMaterial color="#232a24" /></mesh>
+      <group ref={foreL} position={[0, -0.34, 0]} rotation={[sipping ? -0.85 : 0, 0, 0]}><mesh position={[0, -0.15, 0]} castShadow><capsuleGeometry args={[0.05, 0.22, 4, 8]} /><meshStandardMaterial color="#232a24" /></mesh></group>
     </group>
     <group ref={armR} position={[0.29, 0.98, -0.03]} rotation={[sipping ? -0.7 : 0.12, 0, sipping ? 0.22 : 0.12]}>
-      <mesh position={[0, -0.16, 0]} castShadow><capsuleGeometry args={[0.055, 0.26, 4, 8]} /><meshStandardMaterial color="#12161e" /></mesh>
-      <group ref={foreR} position={[0, -0.34, 0]} rotation={[sipping ? -0.85 : 0, 0, 0]}><mesh position={[0, -0.15, 0]} castShadow><capsuleGeometry args={[0.05, 0.22, 4, 8]} /><meshStandardMaterial color="#12161e" /></mesh></group>
+      <mesh position={[0, -0.16, 0]} castShadow><capsuleGeometry args={[0.055, 0.26, 4, 8]} /><meshStandardMaterial color="#232a24" /></mesh>
+      <group ref={foreR} position={[0, -0.34, 0]} rotation={[sipping ? -0.85 : 0, 0, 0]}><mesh position={[0, -0.15, 0]} castShadow><capsuleGeometry args={[0.05, 0.22, 4, 8]} /><meshStandardMaterial color="#232a24" /></mesh></group>
     </group>
     {/* Head and dreadlocks pivot together at the neck so the friend can nod along. */}
     <group ref={head} position={[0, 1.0, 0]}>
@@ -521,7 +559,7 @@ function FriendTorso({ hipY, sipping = false, groove = false }: { hipY: number; 
 function SynthPerformance() {
   const body = useRef<THREE.Group>(null);
   useFrame(({ clock }) => { if (body.current) { body.current.position.y = Math.sin(clock.elapsedTime * 3.1) * 0.035; body.current.rotation.z = Math.sin(clock.elapsedTime * 2.4) * 0.045; } });
-  return <group ref={body} position={[0, 0.1, -0.28]}><mesh position={[-0.22, 0.48, 0]} rotation={[0.1, 0, -0.26]}><capsuleGeometry args={[0.045, 0.38, 4, 8]} /><meshStandardMaterial color="#12161e" /></mesh><mesh position={[0.22, 0.48, 0]} rotation={[0.1, 0, 0.26]}><capsuleGeometry args={[0.045, 0.38, 4, 8]} /><meshStandardMaterial color="#12161e" /></mesh><Sparkles count={10} scale={[0.8, 0.5, 0.4]} size={1.1} speed={0.6} color="#d6a447" /></group>;
+  return <group ref={body} position={[0, 0.1, -0.28]}><mesh position={[-0.22, 0.48, 0]} rotation={[0.1, 0, -0.26]}><capsuleGeometry args={[0.045, 0.38, 4, 8]} /><meshStandardMaterial color="#232a24" /></mesh><mesh position={[0.22, 0.48, 0]} rotation={[0.1, 0, 0.26]}><capsuleGeometry args={[0.045, 0.38, 4, 8]} /><meshStandardMaterial color="#232a24" /></mesh><Sparkles count={10} scale={[0.8, 0.5, 0.4]} size={1.1} speed={0.6} color="#d6a447" /></group>;
 }
 
 function TunePerformance() {
@@ -563,8 +601,8 @@ function Visitor() {
   const facing = Math.atan2(-(px - vx), -(pz - vz));
   const [sx, sz] = toWorld(323, 277);
   const synthFacing = Math.atan2(-(sx - vx), -(sz - vz));
-  if (friendActivity === 'tune' || friendActivity === 'vodka' || friendActivity === 'video-game') return <group position={[vx, 0, vz]} rotation={[0, 0, 0]} scale={1.35} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><SittingLegs /><FriendTorso hipY={0.62} groove={friendActivity === 'tune'} />{friendActivity === 'vodka' && <group ref={drinkGlass} position={[-0.22, 0.92, -0.32]}><mesh><cylinderGeometry args={[0.09, 0.1, 0.2, 12]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.75} /></mesh></group>}</group>;
-  return <group position={[vx, 0, vz]} rotation={[0, friendActivity ? facing : synthFacing, 0]} scale={1.35} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}>
+  if (friendActivity === 'tune' || friendActivity === 'vodka' || friendActivity === 'video-game') return <group position={[vx, 0, vz]} rotation={[0, 0, 0]} scale={1.22} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><SittingLegs /><FriendTorso hipY={0.62} groove={friendActivity === 'tune'} />{friendActivity === 'vodka' && <group ref={drinkGlass} position={[-0.22, 0.92, -0.32]}><mesh><cylinderGeometry args={[0.09, 0.1, 0.2, 12]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.75} /></mesh></group>}</group>;
+  return <group position={[vx, 0, vz]} rotation={[0, friendActivity ? facing : synthFacing, 0]} scale={1.22} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}>
     {/* Tall, slender friend: oversized boots, narrow silhouette, and individual dreadlock strands. */}
     <mesh position={[-0.14, 0.45, 0]} castShadow><capsuleGeometry args={[0.09, 0.72, 4, 8]} /><meshStandardMaterial color="#293026" /></mesh>
     <mesh position={[0.14, 0.45, 0]} castShadow><capsuleGeometry args={[0.09, 0.72, 4, 8]} /><meshStandardMaterial color="#293026" /></mesh>
