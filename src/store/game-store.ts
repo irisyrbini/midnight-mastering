@@ -71,6 +71,8 @@ type GameState = GameSnapshot & {
   activeVideoId?: string;
   ending: Ending;
   collapseMinutes: number;
+  /** The producer has been carried into a forced night's rest (never a lose state). Shows the rest overlay. */
+  sleeping: boolean;
   setDawOpen: (open: boolean) => void;
   setWorkingOnMusic: (working: boolean) => void;
   movePlayer: (direction: { x: number; y: number }) => void;
@@ -323,6 +325,7 @@ const initialSession = () => ({
   activeVideoId: undefined as string | undefined,
   ending: null as Ending,
   collapseMinutes: 0,
+  sleeping: false,
 });
 
 /**
@@ -377,7 +380,8 @@ export const useGameStore = create<GameState>((set) => ({
   setDawOpen: (dawOpen) => set({ dawOpen, workingOnMusic: dawOpen ? false : false }),
   setWorkingOnMusic: (workingOnMusic) => set((state) => ({ workingOnMusic: state.dawOpen ? workingOnMusic : false })),
   pause: () => set((state) => (state.phase === 'playing' ? { phase: 'paused' } : state)),
-  resume: () => set((state) => (state.phase === 'paused' ? { phase: 'playing' } : state)),
+  // Resume also wakes the producer from a forced rest and stands them back up.
+  resume: () => set((state) => (state.phase === 'paused' ? { phase: 'playing', sleeping: false, lyingDown: false } : state)),
   restart: () => set({ phase: 'playing', ...initialSession() }),
   continueAfterChapter: () => set((state) => ({
     phase: 'playing',
@@ -540,11 +544,31 @@ export const useGameStore = create<GameState>((set) => ({
       ...thoughtFrame,
       ...elevatorFrame,
     };
-    // Session-frame outcome: a win halts the run immediately; sustained rock-bottom wellbeing collapses it.
+    // Session-frame outcome. There is no lose state.
+    // - Finishing the album ends the chapter: the run halts, the producer stands up, and the room is
+    //   held in morning light so the ending can be a quiet look around at everything they made.
+    // - Bottoming out on wellbeing is NOT a failure. The producer is carried into a night's rest and
+    //   wakes the next day, rested — the album, the instruments used, the room, and the emotional graph
+    //   all persist. Falling asleep just becomes part of the story.
     const sessionFrame = (finalNeeds: ProducerNeeds, won: boolean) => {
-      if (won) return { phase: 'ending' as GamePhase, ending: 'finished' as Ending };
+      if (won) return {
+        phase: 'ending' as GamePhase,
+        ending: 'finished' as Ending,
+        clock: { day: state.clock.day + dayCount, minuteOfDay: 420 }, // morning light fills the room (7:00 AM)
+        seated: false, lyingDown: false, scrolling: false, workingOnMusic: false, dawOpen: false,
+        activeVideoId: undefined, moveTarget: null as MoveTarget,
+      };
       const collapseMinutes = wellbeing(finalNeeds) <= COLLAPSE_WELLBEING_FLOOR ? state.collapseMinutes + gameMinutes : 0;
-      if (collapseMinutes >= COLLAPSE_SUSTAIN_MINUTES) return { phase: 'ending' as GamePhase, ending: 'collapse' as Ending, collapseMinutes };
+      if (collapseMinutes >= COLLAPSE_SUSTAIN_MINUTES) return {
+        phase: 'paused' as GamePhase, // halt so the rest overlay can breathe; `resume` wakes them
+        sleeping: true,
+        collapseMinutes: 0,
+        clock: { day: state.clock.day + dayCount + 1, minuteOfDay: 0 }, // a day slips by; wake tomorrow
+        needs: dailyNeeds, // wakes rested — the body resets, nothing they made does
+        stress: clamp(state.stress - 45),
+        seated: false, lyingDown: true, scrolling: false, workingOnMusic: false, dawOpen: false,
+        playerPosition: LIE_POSITION, moveTarget: null as MoveTarget,
+      };
       return { collapseMinutes };
     };
     const liveInspiration = Math.max(0, state.inspirationMinutes - gameMinutes);

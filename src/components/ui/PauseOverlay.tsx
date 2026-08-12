@@ -5,9 +5,11 @@ import { useGameStore } from '@/store/game-store';
 /** Freezes the run without ending it. Simulation halts because tick early-returns unless phase is 'playing'. */
 export function PauseOverlay() {
   const phase = useGameStore((state) => state.phase);
+  const sleeping = useGameStore((state) => state.sleeping);
   const resume = useGameStore((state) => state.resume);
   const restart = useGameStore((state) => state.restart);
-  if (phase !== 'paused') return null;
+  // A forced rest also halts on `paused`, but it has its own gentle overlay — don't double up.
+  if (phase !== 'paused' || sleeping) return null;
 
   return <section className="absolute inset-0 z-30 grid place-items-center bg-night/75 backdrop-blur-sm">
     <div className="w-[min(360px,calc(100%-2.5rem))] rounded-2xl border border-paper/45 bg-[#111525]/90 p-7 text-center shadow-2xl">

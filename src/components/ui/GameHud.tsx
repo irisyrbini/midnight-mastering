@@ -6,6 +6,7 @@ import type { NeedKey } from '@/types/game';
 import { DawPanel } from './DawPanel';
 import { InteractionVideo } from './InteractionVideo';
 import { PauseOverlay } from './PauseOverlay';
+import { RestOverlay } from './RestOverlay';
 import { EndingOverlay } from './EndingOverlay';
 import { PromptOverlay } from './PromptOverlay';
 import { SfxPlayer } from './SfxPlayer';
@@ -34,6 +35,11 @@ export function GameHud() {
   const needs = useGameStore((state) => state.needs);
   const stress = useGameStore((state) => state.stress);
   const clock = useGameStore((state) => state.clock);
+  const phase = useGameStore((state) => state.phase);
+  const sleeping = useGameStore((state) => state.sleeping);
+  // The chapter ending and the forced-rest beat want a clear screen — hide the persistent HUD so the
+  // room and the quiet text can carry the moment (the overlays below still render).
+  const quiet = phase === 'ending' || sleeping;
   const lastInteraction = useGameStore((state) => state.lastInteraction);
   const crystal = useGameStore((state) => state.crystal);
   const emotionalGraph = useGameStore((state) => state.emotionalGraph);
@@ -43,6 +49,7 @@ export function GameHud() {
   const emotion = emotionalScore(emotionalGraph);
   const crystalHex = crystal === 'red' ? '#d84f59' : crystal === 'yellow' ? '#e6c34c' : '#62cf86';
   return <>
+    {!quiet && <>
     <header className="pointer-events-none absolute inset-x-0 top-5 z-10 text-center">
       <h1 className="text-xl font-semibold tracking-[0.14em] text-paper">MAKE ME HAPPY AGAIN</h1>
       <p className="mt-1 text-xs tracking-[0.12em] text-paper/60">RESTORE THE CRYSTAL · FINISH THE ALBUM</p>
@@ -71,14 +78,16 @@ export function GameHud() {
     {lastInteraction && <aside className="pointer-events-none absolute bottom-5 left-1/2 w-[min(440px,calc(100%-2.5rem))] -translate-x-1/2 rounded-xl border border-paper/45 bg-night/90 px-5 py-4 text-center shadow-2xl">
       <p className="text-sm text-paper"><span className="font-semibold">{lastInteraction.label}</span> · {lastInteraction.description}</p>
     </aside>}
+    </>}
     <DawPanel />
     <InteractionVideo />
     <PromptOverlay />
     <FriendMenu />
     <ElevatorFloors />
     <PauseOverlay />
+    <RestOverlay />
     <EndingOverlay />
     <SfxPlayer />
-    <SaveMenu />
+    {!quiet && <SaveMenu />}
   </>;
 }
