@@ -141,19 +141,59 @@ function useGroove(active: boolean, refs: GrooveRefs, pose: GroovePose, grooveOf
   });
 }
 
+/**
+ * Emotional body language (Patch 0.2: the body carries the feeling). Reads the live `stress`, `energy`
+ * and `crystal` from the store and eases the upper body into a posture — no faces needed:
+ *   high stress  → slouch/curl in, head lower, shoulders up a touch, arms tucked
+ *   low energy   → deeper slump, head heavier
+ *   green crystal → opens up, head lifts, a slow easy glance around
+ * Everything is additive over the base pose and blends through the `amount` weight, so it never snaps.
+ * Applied to the standing and seated bodies (not while grooving to a tune — that loop owns the arms).
+ */
+function useEmotionalPosture(active: boolean, refs: GrooveRefs) {
+  const amount = useRef(0);
+  useFrame(({ clock }, delta) => {
+    amount.current += ((active ? 1 : 0) - amount.current) * Math.min(1, delta * 2.5);
+    const k = amount.current;
+    if (k < 0.002) return; // inactive: leave the base pose untouched
+    const s = useGameStore.getState();
+    const stress = Math.min(1, Math.max(0, s.stress / 100));
+    const tired = 1 - Math.min(1, Math.max(0, s.needs.energy / 100));
+    const green = s.crystal === 'green' ? 1 : 0;
+    const et = clock.elapsedTime;
+    const ease = Math.min(1, delta * 2.5);
+    const slouch = 0.05 + stress * 0.14 + tired * 0.12 - green * 0.1;
+    const headDown = stress * 0.2 + tired * 0.12 - green * 0.08;
+    const shoulderRaise = stress * 0.045;
+    const armTuck = stress * 0.1;
+    if (refs.torso.current) refs.torso.current.rotation.x += (slouch * k - refs.torso.current.rotation.x) * ease;
+    if (refs.head.current) {
+      refs.head.current.rotation.x += (headDown * k - refs.head.current.rotation.x) * ease;
+      refs.head.current.rotation.y += (Math.sin(et * 0.13) * 0.1 * green * k - refs.head.current.rotation.y) * Math.min(1, delta * 1.5);
+    }
+    if (refs.armL.current) { refs.armL.current.position.y += ((0.66 + shoulderRaise * k) - refs.armL.current.position.y) * ease; refs.armL.current.rotation.z += ((0.12 + armTuck * k) - refs.armL.current.rotation.z) * ease; }
+    if (refs.armR.current) { refs.armR.current.position.y += ((0.66 + shoulderRaise * k) - refs.armR.current.position.y) * ease; refs.armR.current.rotation.z += ((-0.12 - armTuck * k) - refs.armR.current.rotation.z) * ease; }
+  });
+}
+
 /** Everything from the hips up, shared by the standing and seated poses (offsets are relative to hip height). */
-function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0 }: { hipY: number; cloth?: string; groove?: boolean; grooveOffset?: number }) {
+function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, posture = false }: { hipY: number; cloth?: string; groove?: boolean; grooveOffset?: number; posture?: boolean }) {
   const torso = useRef<THREE.Group>(null);
   const head = useRef<THREE.Group>(null);
   const armL = useRef<THREE.Group>(null);
   const armR = useRef<THREE.Group>(null);
   const foreL = useRef<THREE.Group>(null);
   const foreR = useRef<THREE.Group>(null);
-  useGroove(groove, { torso, head, armL, armR, foreL, foreR }, { hipY, shoulderY: 0.66, armX: 0.05, armZ: -0.12 }, grooveOffset);
+  const refs = { torso, head, armL, armR, foreL, foreR };
+  useGroove(groove, refs, { hipY, shoulderY: 0.66, armX: 0.05, armZ: -0.12 }, grooveOffset);
+  // Emotional posture runs when NOT grooving (the tune loop owns the arms/torso while it's active).
+  useEmotionalPosture(posture && !groove, refs);
   return <group ref={torso} position={[0, hipY, 0]}>
-    {/* Voxel-like hoodie: low-poly, squared planes and deliberately visible block proportions. */}
-    <mesh position={[0, 0.38, 0]} castShadow><boxGeometry args={[0.62, 0.76, 0.38]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
-    <mesh position={[0, 0.77, 0.02]} castShadow><boxGeometry args={[0.72, 0.22, 0.44]} /><meshStandardMaterial color="#202633" roughness={0.95} /></mesh>
+    {/* Voxel-like hoodie, now with a slight chest→waist taper so the torso reads as a body, not a block. */}
+    <mesh position={[0, 0.56, 0]} castShadow><boxGeometry args={[0.62, 0.42, 0.38]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
+    <mesh position={[0, 0.2, 0]} castShadow><boxGeometry args={[0.5, 0.42, 0.34]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
+    {/* Wider shoulder yoke — a stronger, less top-heavy silhouette. */}
+    <mesh position={[0, 0.77, 0.02]} castShadow><boxGeometry args={[0.88, 0.2, 0.42]} /><meshStandardMaterial color="#202633" roughness={0.95} /></mesh>
     {/* warm hoodie drawstring on the chest — the one subtle signature accent (front is −z). */}
     <mesh position={[-0.05, 0.58, -0.185]}><cylinderGeometry args={[0.012, 0.012, 0.17, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
     <mesh position={[0.05, 0.6, -0.185]}><cylinderGeometry args={[0.012, 0.012, 0.14, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
@@ -176,9 +216,10 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0 }: { 
       </group>
     </group>
     <mesh position={[0, 0.38, -0.205]}><boxGeometry args={[0.055, 0.62, 0.025]} /><meshStandardMaterial color="#05070c" metalness={0.35} /></mesh>
-    {/* Square head inset inside a raised hood, pivoted at the neck so it can nod and turn. */}
+    {/* Head inset inside a raised hood, pivoted at the neck. Shrunk/narrowed so it's no longer nearly as
+        wide as the torso — a less toy-like head-to-body ratio. */}
     <group ref={head} position={[0, 0.8, 0]}>
-      <mesh position={[0, 0.23, -0.08]} castShadow><boxGeometry args={[0.34, 0.38, 0.31]} /><meshStandardMaterial color="#4b3b3d" roughness={0.95} /></mesh>
+      <mesh position={[0, 0.23, -0.08]} castShadow><boxGeometry args={[0.3, 0.34, 0.29]} /><meshStandardMaterial color="#4b3b3d" roughness={0.95} /></mesh>
       {/* Messy low-poly hair peeking from the hood opening — small tufts at the fringe and temples so the
           head reads as a person (even from behind) without growing the hood silhouette. */}
       <mesh position={[0, 0.44, -0.12]} rotation={[0.32, 0, 0]} castShadow><boxGeometry args={[0.3, 0.06, 0.09]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
@@ -186,14 +227,14 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0 }: { 
       <mesh position={[0.07, 0.46, -0.09]} rotation={[0.4, -0.2, -0.15]}><boxGeometry args={[0.06, 0.08, 0.06]} /><meshStandardMaterial color="#2b2530" roughness={1} /></mesh>
       <mesh position={[-0.15, 0.34, -0.05]} rotation={[0.15, 0, 0.35]}><boxGeometry args={[0.07, 0.13, 0.08]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
       <mesh position={[0.15, 0.34, -0.05]} rotation={[0.15, 0, -0.35]}><boxGeometry args={[0.07, 0.13, 0.08]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
-      <mesh position={[0, 0.27, 0.07]} castShadow><boxGeometry args={[0.55, 0.58, 0.5]} /><meshStandardMaterial color={cloth} roughness={0.98} /></mesh>
-      <mesh position={[0, 0.22, -0.24]}><boxGeometry args={[0.38, 0.38, 0.08]} /><meshStandardMaterial color="#2a2d36" /></mesh>
-      {/* Pixel headphones: squared band and chunky ear cups over the raised hood. */}
-      <mesh position={[0, 0.6, 0.04]}><boxGeometry args={[0.62, 0.1, 0.14]} /><meshStandardMaterial color="#090b10" /></mesh>
-      <mesh position={[-0.36, 0.24, 0.02]}><boxGeometry args={[0.16, 0.3, 0.2]} /><meshStandardMaterial color="#090b10" /></mesh>
-      <mesh position={[0.36, 0.24, 0.02]}><boxGeometry args={[0.16, 0.3, 0.2]} /><meshStandardMaterial color="#090b10" /></mesh>
-      <mesh position={[-0.45, 0.24, 0.02]}><boxGeometry args={[0.045, 0.13, 0.14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.5} /></mesh>
-      <mesh position={[0.45, 0.24, 0.02]}><boxGeometry args={[0.045, 0.13, 0.14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.5} /></mesh>
+      <mesh position={[0, 0.28, 0.06]} castShadow><boxGeometry args={[0.48, 0.5, 0.46]} /><meshStandardMaterial color={cloth} roughness={0.98} /></mesh>
+      <mesh position={[0, 0.22, -0.23]}><boxGeometry args={[0.34, 0.36, 0.08]} /><meshStandardMaterial color="#2a2d36" /></mesh>
+      {/* Pixel headphones: squared band and chunky ear cups, narrowed to sit on the smaller head. */}
+      <mesh position={[0, 0.58, 0.04]}><boxGeometry args={[0.54, 0.1, 0.14]} /><meshStandardMaterial color="#090b10" /></mesh>
+      <mesh position={[-0.31, 0.24, 0.02]}><boxGeometry args={[0.15, 0.28, 0.19]} /><meshStandardMaterial color="#090b10" /></mesh>
+      <mesh position={[0.31, 0.24, 0.02]}><boxGeometry args={[0.15, 0.28, 0.19]} /><meshStandardMaterial color="#090b10" /></mesh>
+      <mesh position={[-0.39, 0.24, 0.02]}><boxGeometry args={[0.045, 0.13, 0.14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.5} /></mesh>
+      <mesh position={[0.39, 0.24, 0.02]}><boxGeometry args={[0.045, 0.13, 0.14]} /><meshStandardMaterial color="#d6a447" emissive="#6f4b10" emissiveIntensity={0.5} /></mesh>
     </group>
   </group>;
 }
@@ -220,12 +261,15 @@ function SittingLegs() {
   </>;
 }
 
-/** One leg pivoted at the hip so it can swing during the walk cycle. */
-function WalkLeg({ legRef, x }: { legRef: RefObject<THREE.Group | null>; x: number }) {
-  return <group ref={legRef} position={[x, 0.85, 0]}>
-    <mesh position={[0, -0.43, 0]} castShadow><boxGeometry args={[0.22, 0.82, 0.24]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
-    {/* toe points −z (forward), matching the face */}
-    <mesh position={[0, -0.79, -0.1]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+/** One leg with a hip and a knee, so the shin can trail/fold during the walk cycle instead of swinging rigid. */
+function WalkLeg({ hipRef, shinRef, x }: { hipRef: RefObject<THREE.Group | null>; shinRef: RefObject<THREE.Group | null>; x: number }) {
+  return <group ref={hipRef} position={[x, 0.85, 0]}>
+    <mesh position={[0, -0.21, 0]} castShadow><boxGeometry args={[0.22, 0.44, 0.24]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
+    <group ref={shinRef} position={[0, -0.43, 0]}>
+      <mesh position={[0, -0.2, 0]} castShadow><boxGeometry args={[0.2, 0.4, 0.22]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
+      {/* toe points −z (forward), matching the face */}
+      <mesh position={[0, -0.42, -0.09]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+    </group>
   </group>;
 }
 
@@ -233,42 +277,52 @@ function WalkLeg({ legRef, x }: { legRef: RefObject<THREE.Group | null>; x: numb
 function WalkingFigure() {
   const figure = useRef<THREE.Group>(null);
   const bob = useRef<THREE.Group>(null);
-  const legL = useRef<THREE.Group>(null);
-  const legR = useRef<THREE.Group>(null);
+  const hipL = useRef<THREE.Group>(null);
+  const hipR = useRef<THREE.Group>(null);
+  const shinL = useRef<THREE.Group>(null);
+  const shinR = useRef<THREE.Group>(null);
   const last = useRef({ x: 0, z: 0, ready: false });
   const phase = useRef(0);
   const facing = useRef(0);
   const swing = useRef(0);
+  const gait = useRef(0);
   useFrame(({ clock }, dt) => {
-    const p = useGameStore.getState().playerPosition;
-    const [x, z] = toWorld(p.x, p.y);
+    const s = useGameStore.getState();
+    const [x, z] = toWorld(s.playerPosition.x, s.playerPosition.y);
     if (!last.current.ready) last.current = { x, z, ready: true };
     const dx = x - last.current.x;
     const dz = z - last.current.z;
     last.current.x = x; last.current.z = z;
     const dist = Math.hypot(dx, dz);
-    const speed = dt > 0 ? dist / dt : 0;
     const moving = dist > 0.0015;
+    // Stride is DISTANCE-locked, not time-locked, so the feet plant instead of sliding: a step's worth of
+    // travel is a step's worth of phase, at any speed.
     if (moving) {
       const target = Math.atan2(-dx, -dz); // model faces -z by default; turn toward travel
       const diff = Math.atan2(Math.sin(target - facing.current), Math.cos(target - facing.current));
       facing.current += diff * Math.min(1, dt * 14);
-      phase.current += dt * (7 + Math.min(speed, 14) * 1.5);
+      phase.current += dist * 9.0;
     }
-    const targetSwing = moving ? Math.sin(phase.current) * Math.min(0.75, 0.35 + speed * 0.05) : 0;
+    gait.current += ((moving ? 1 : 0) - gait.current) * Math.min(1, dt * 8);
+    const g = gait.current;
+    // Low energy shortens the stride and softens the bob (heavier steps); a bit of stress tightens it too.
+    const energy = Math.min(1, Math.max(0, s.needs.energy / 100));
+    const stress = Math.min(1, Math.max(0, s.stress / 100));
+    const amp = (0.42 + energy * 0.24 - stress * 0.06) * g;
+    const targetSwing = Math.sin(phase.current) * amp;
     swing.current += (targetSwing - swing.current) * Math.min(1, dt * 12);
     if (figure.current) figure.current.rotation.y = facing.current;
     if (bob.current) {
       if (moving) {
-        bob.current.position.y += (Math.abs(Math.sin(phase.current)) * Math.min(0.09, 0.03 + speed * 0.006) - bob.current.position.y) * Math.min(1, dt * 12);
-        bob.current.rotation.x += (-0.16 - bob.current.rotation.x) * Math.min(1, dt * 10); // lean forward while walking
+        bob.current.position.y += (Math.abs(Math.sin(phase.current)) * (0.05 + energy * 0.03) * g - bob.current.position.y) * Math.min(1, dt * 12);
+        bob.current.rotation.x += (-0.16 * g - bob.current.rotation.x) * Math.min(1, dt * 10); // lean forward while walking
         bob.current.rotation.z += (0 - bob.current.rotation.z) * Math.min(1, dt * 8);
         bob.current.rotation.y += (0 - bob.current.rotation.y) * Math.min(1, dt * 8);
       } else {
-        // Subtle idle life — the producer is alive, not restless. Slow breathing, a barely-there weight
-        // shift, and a small settling drift, all on long/irregular periods so nothing loops obviously.
+        // Subtle idle life — alive, not restless. The breath quickens a little under stress.
         const et = clock.elapsedTime;
-        const breath = 0.004 + Math.sin(et * 1.25) * 0.008; // gentle rise/fall of the chest/shoulders
+        const breathHz = 1.1 + stress * 0.8;
+        const breath = 0.004 + Math.sin(et * breathHz) * (0.006 + stress * 0.004);
         const sway = Math.sin(et * 0.21) * 0.017 + Math.sin(et * 0.083 + 1.3) * 0.011; // weight shift
         const settle = Math.sin(et * 0.15 + 0.6) * 0.04; // very small head/upper drift
         bob.current.position.y += (breath - bob.current.position.y) * Math.min(1, dt * 3);
@@ -277,15 +331,19 @@ function WalkingFigure() {
         bob.current.rotation.y += (settle - bob.current.rotation.y) * Math.min(1, dt * 2.5);
       }
     }
-    if (legL.current) legL.current.rotation.x = swing.current;
-    if (legR.current) legR.current.rotation.x = -swing.current;
+    // Hip swings the whole leg; the knee (shin) only folds on the leg swinging back, which is what stops
+    // the walk looking stiff-legged.
+    if (hipL.current) hipL.current.rotation.x = swing.current;
+    if (hipR.current) hipR.current.rotation.x = -swing.current;
+    if (shinL.current) shinL.current.rotation.x = Math.max(0, -swing.current) * 0.9;
+    if (shinR.current) shinR.current.rotation.x = Math.max(0, swing.current) * 0.9;
   });
   return <group ref={figure}>
-    <WalkLeg legRef={legL} x={-0.15} />
-    <WalkLeg legRef={legR} x={0.15} />
+    <WalkLeg hipRef={hipL} shinRef={shinL} x={-0.15} />
+    <WalkLeg hipRef={hipR} shinRef={shinR} x={0.15} />
     {/* The smoking layer sits inside the bobbing group, so the upper-body animation blends over the
         walk cycle: the legs keep striding while the cigarette turns and bobs with the body. */}
-    <group ref={bob}><UpperBody hipY={0.82} /><SmokingEffect hipY={0.82} /></group>
+    <group ref={bob}><UpperBody hipY={0.82} posture /><SmokingEffect hipY={0.82} /></group>
   </group>;
 }
 
@@ -511,7 +569,7 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   if (seated) {
     return <group position={[x, 0, z]}>
       <SittingLegs />
-      <UpperBody hipY={0.62} groove={friendActivity === 'tune'} />
+      <UpperBody hipY={0.62} groove={friendActivity === 'tune'} posture={friendActivity !== 'tune'} />
       {friendActivity === 'tune' && <TunePerformance />}
       {friendActivity === 'vodka' && <mesh position={[0.24, 1.05, -0.42]}><cylinderGeometry args={[0.08, 0.1, 0.52, 12]} /><meshStandardMaterial color="#52758e" transparent opacity={0.8} /></mesh>}
       {friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
