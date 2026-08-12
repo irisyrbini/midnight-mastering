@@ -202,25 +202,28 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
   //    foreL/foreR) at their fixed pivots — the clothing masses below just hang off those bones, so pose
   //    and posture keep working. Front faces −z (toward the face/shoes). ──
   return <group ref={torso} position={[0, hipY, 0]}>
-    {/* ===== TORSO: oversized hoodie built from stacked masses ===== */}
-    {/* Shoulder yoke — a wide slab that drops at the ends (oversized dropped shoulder), above the chest. */}
-    <mesh position={[0, 0.82, 0]} castShadow><boxGeometry args={[0.98, 0.2, 0.46]} /><meshStandardMaterial color={cloth} roughness={0.98} flatShading /></mesh>
-    <mesh position={[-0.45, 0.74, 0]} rotation={[0, 0, 0.34]} castShadow><boxGeometry args={[0.26, 0.2, 0.44]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
-    <mesh position={[0.45, 0.74, 0]} rotation={[0, 0, -0.34]} castShadow><boxGeometry args={[0.26, 0.2, 0.44]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
-    {/* Chest block — broad and shallow, tipped very slightly forward for a graphic angular plane. */}
-    <mesh position={[0, 0.5, -0.02]} rotation={[0.06, 0, 0]} castShadow><boxGeometry args={[0.74, 0.46, 0.34]} /><meshStandardMaterial color={cloth} roughness={0.97} flatShading /></mesh>
-    {/* Lower torso — narrower, tapers toward the waist and overlaps the chest (a visible change of plane). */}
-    <mesh position={[0, 0.14, 0]} castShadow><boxGeometry args={[0.58, 0.5, 0.32]} /><meshStandardMaterial color={cloth} roughness={0.97} flatShading /></mesh>
-    {/* Long hem wedge flaring a touch at the bottom, one value darker. */}
-    <mesh position={[0, -0.16, 0.02]} castShadow><boxGeometry args={[0.64, 0.2, 0.36]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
-    {/* Back drape (+z) so the hooded silhouette reads from behind. */}
-    <mesh position={[0, 0.34, 0.2]} rotation={[Math.PI, 0, 0]} castShadow><coneGeometry args={[0.4, 0.82, 6, 1, true]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading side={THREE.DoubleSide} /></mesh>
-    {/* Central placket + warm drawstrings — the one signature accent (front is −z). */}
-    <mesh position={[0, 0.32, -0.185]}><boxGeometry args={[0.05, 0.6, 0.02]} /><meshStandardMaterial color="#05070c" metalness={0.35} /></mesh>
-    <mesh position={[-0.05, 0.5, -0.195]}><cylinderGeometry args={[0.012, 0.012, 0.18, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
-    <mesh position={[0.05, 0.52, -0.195]}><cylinderGeometry args={[0.012, 0.012, 0.15, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
-    <mesh position={[-0.05, 0.4, -0.195]}><boxGeometry args={[0.03, 0.035, 0.02]} /><meshStandardMaterial color="#b0904f" /></mesh>
-    <mesh position={[0.05, 0.43, -0.195]}><boxGeometry args={[0.03, 0.035, 0.02]} /><meshStandardMaterial color="#b0904f" /></mesh>
+    {/* ===== TORSO: a draped oversized cowl-cloak (matching the reference turnaround) — a raised collar,
+         steeply sloped shoulders, a wide bell that hangs long, and an asymmetric hip sash. ===== */}
+    {/* Raised cowl collar pooling around the neck and rising at the back — the garment's signature. */}
+    <mesh position={[0, 0.74, 0.03]} rotation={[0.18, 0, 0]} castShadow><cylinderGeometry args={[0.3, 0.44, 0.36, 7, 1, true]} /><meshStandardMaterial color={cloth} roughness={1} side={THREE.DoubleSide} flatShading /></mesh>
+    <mesh position={[0, 0.82, 0.17]} rotation={[0.5, 0, 0]} castShadow><boxGeometry args={[0.44, 0.3, 0.18]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
+    {/* Steeply sloped shoulders — no squared yoke; the cloak falls from here. */}
+    <mesh position={[-0.4, 0.66, 0]} rotation={[0, 0, 0.6]} castShadow><boxGeometry args={[0.34, 0.24, 0.44]} /><meshStandardMaterial color={cloth} roughness={0.98} flatShading /></mesh>
+    <mesh position={[0.4, 0.66, 0]} rotation={[0, 0, -0.6]} castShadow><boxGeometry args={[0.34, 0.24, 0.44]} /><meshStandardMaterial color={cloth} roughness={0.98} flatShading /></mesh>
+    {/* Wide draped chest / upper cloak. */}
+    <mesh position={[0, 0.46, -0.02]} rotation={[0.05, 0, 0]} castShadow><boxGeometry args={[0.86, 0.52, 0.44]} /><meshStandardMaterial color={cloth} roughness={0.97} flatShading /></mesh>
+    {/* Angled side folds flare the bell out from the body (the cloak hangs over the arms). */}
+    <mesh position={[-0.44, 0.26, 0.02]} rotation={[0, 0, 0.4]} castShadow><boxGeometry args={[0.26, 0.58, 0.4]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
+    <mesh position={[0.44, 0.26, 0.02]} rotation={[0, 0, -0.4]} castShadow><boxGeometry args={[0.26, 0.58, 0.4]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
+    {/* Mid drape stays wide (not tapered) — the cloak hangs long toward the thighs. */}
+    <mesh position={[0, 0.08, 0]} castShadow><boxGeometry args={[0.66, 0.5, 0.38]} /><meshStandardMaterial color={cloth} roughness={0.97} flatShading /></mesh>
+    {/* Asymmetric wrapped sash across the hips — the reference's diagonal fabric band + a knotted fold. */}
+    <mesh position={[0.02, -0.08, -0.02]} rotation={[0, 0, -0.3]} castShadow><boxGeometry args={[0.8, 0.2, 0.42]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
+    <mesh position={[-0.18, -0.18, -0.19]} rotation={[0, 0, -0.3]} castShadow><boxGeometry args={[0.3, 0.18, 0.08]} /><meshStandardMaterial color={cloth} roughness={1} flatShading /></mesh>
+    {/* Long hem drop, one value darker. */}
+    <mesh position={[0, -0.32, 0.02]} castShadow><boxGeometry args={[0.6, 0.22, 0.38]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
+    {/* Back drape (+z) so the cowl silhouette reads from behind. */}
+    <mesh position={[0, 0.3, 0.22]} rotation={[Math.PI, 0, 0]} castShadow><coneGeometry args={[0.42, 0.9, 6, 1, true]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading side={THREE.DoubleSide} /></mesh>
     {/* ===== ARMS: oversized sleeve shell over an articulated arm. Shoulder pivot stays at y=0.66 (the
          posture/groove hooks drive these bones), so only the geometry is oversized. ===== */}
     <group ref={armL} position={[-0.44, 0.66, 0.01]} rotation={[0.05, 0, 0.12]}>
@@ -243,20 +246,16 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
          group pivots at the neck and leans a touch forward (−z) for a relaxed posture; only its ROTATION
          is animated, so its position carries the lean. ===== */}
     <group ref={head} position={[0, 0.8, -0.06]}>
-      {/* Hood cowl behind/around the head (open front) — part of the oversized garment. */}
-      <mesh position={[0, 0.28, 0.1]} castShadow><cylinderGeometry args={[0.4, 0.34, 0.6, 8, 1, true]} /><meshStandardMaterial color={cloth} roughness={1} side={THREE.DoubleSide} flatShading /></mesh>
-      <mesh position={[0, 0.22, 0.22]} castShadow><boxGeometry args={[0.42, 0.46, 0.28]} /><meshStandardMaterial color={OUTER_DK} roughness={1} flatShading /></mesh>
-      {/* Small faceted skull + a jaw wedge narrowing to the chin (stops the head reading as a cube). */}
-      <mesh position={[0, 0.3, 0]} castShadow><icosahedronGeometry args={[0.16, 0]} /><meshStandardMaterial color="#43373a" roughness={0.95} flatShading /></mesh>
-      <mesh position={[0, 0.19, -0.05]} rotation={[0.2, 0, 0]} castShadow><boxGeometry args={[0.2, 0.16, 0.2]} /><meshStandardMaterial color="#43373a" roughness={0.95} flatShading /></mesh>
+      {/* Small faceted skull + a jaw wedge narrowing to the chin (bare head — the cowl is at the neck). */}
+      <mesh position={[0, 0.3, 0]} castShadow><icosahedronGeometry args={[0.155, 0]} /><meshStandardMaterial color="#3f3437" roughness={0.95} flatShading /></mesh>
+      <mesh position={[0, 0.19, -0.05]} rotation={[0.2, 0, 0]} castShadow><boxGeometry args={[0.19, 0.16, 0.2]} /><meshStandardMaterial color="#3f3437" roughness={0.95} flatShading /></mesh>
       {/* Minimal inset face plane, a restrained step lighter. */}
-      <mesh position={[0, 0.28, -0.13]}><boxGeometry args={[0.22, 0.2, 0.04]} /><meshStandardMaterial color={SKIN} roughness={0.9} flatShading /></mesh>
-      {/* Hair as a few large low-poly chunks (crown + fringe + temples + rear tuft), the darkest value. */}
-      <mesh position={[0, 0.42, 0.02]} rotation={[0.1, 0, 0]} castShadow><icosahedronGeometry args={[0.185, 0]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>
-      <mesh position={[0, 0.38, -0.12]} rotation={[0.4, 0, 0]}><boxGeometry args={[0.28, 0.12, 0.1]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>
-      <mesh position={[-0.16, 0.36, -0.02]} rotation={[0.1, 0.2, 0.42]}><boxGeometry args={[0.1, 0.2, 0.14]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>
-      <mesh position={[0.16, 0.36, -0.02]} rotation={[0.1, -0.2, -0.42]}><boxGeometry args={[0.1, 0.2, 0.14]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>
-      <mesh position={[0, 0.44, 0.14]} rotation={[-0.35, 0, 0]}><boxGeometry args={[0.24, 0.14, 0.12]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>
+      <mesh position={[0, 0.28, -0.12]}><boxGeometry args={[0.2, 0.2, 0.04]} /><meshStandardMaterial color={SKIN} roughness={0.9} flatShading /></mesh>
+      {/* Short twisted locs: a close dark cap over the crown, then a scatter of stubby twists pointing
+          up-and-back — irregular, not anime spikes (reference hair). */}
+      <mesh position={[0, 0.36, 0.04]} castShadow><icosahedronGeometry args={[0.17, 0]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>
+      {([[-0.1, 0.52, 0.02, 0.15, 0.2], [0.03, 0.55, 0.03, 0.1, -0.05], [0.13, 0.5, 0, 0.15, -0.28], [-0.14, 0.48, 0.05, 0.2, 0.4], [0.14, 0.47, 0.05, 0.2, -0.4], [-0.03, 0.53, 0.12, 0.45, 0.05], [0.08, 0.5, 0.12, 0.4, -0.15], [-0.15, 0.4, -0.04, 0, 0.5], [0.16, 0.39, -0.03, 0, -0.5], [0, 0.44, -0.12, -0.4, 0]] as const).map(([hx, hy, hz, rx, rz], i) =>
+        <mesh key={i} position={[hx, hy, hz]} rotation={[rx, 0, rz]} castShadow><boxGeometry args={[0.052, 0.17, 0.052]} /><meshStandardMaterial color={HAIR} roughness={1} flatShading /></mesh>)}
       {/* Squared headphones — band + chunky ear cups + warm amber accent, sized to the smaller skull. */}
       <mesh position={[0, 0.5, 0]}><boxGeometry args={[0.44, 0.1, 0.16]} /><meshStandardMaterial color={HP_DARK} /></mesh>
       <mesh position={[-0.25, 0.28, 0]}><boxGeometry args={[0.12, 0.22, 0.17]} /><meshStandardMaterial color={HP_DARK} /></mesh>
@@ -271,9 +270,11 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
  *  `y` is the ankle height the shoe hangs from so the standing/seated/walking legs can share one build. */
 function Shoe({ y }: { y: number }) {
   return <group position={[0, y, 0]}>
-    <mesh position={[0, 0.02, 0.08]} castShadow><boxGeometry args={[0.24, 0.13, 0.14]} /><meshStandardMaterial color={SHOE} roughness={0.8} flatShading /></mesh>
-    <mesh position={[0, 0.01, -0.08]} castShadow><boxGeometry args={[0.26, 0.14, 0.3]} /><meshStandardMaterial color={SHOE} roughness={0.8} flatShading /></mesh>
-    <mesh position={[0, -0.01, -0.26]} rotation={[0.14, 0, 0]} castShadow><boxGeometry args={[0.22, 0.09, 0.18]} /><meshStandardMaterial color={SHOE} roughness={0.8} flatShading /></mesh>
+    {/* chunky sneaker: ankle + main body + toe wedge riding on a wide low sole slab (toe −z) */}
+    <mesh position={[0, 0.04, 0.09]} castShadow><boxGeometry args={[0.26, 0.17, 0.16]} /><meshStandardMaterial color={SHOE} roughness={0.8} flatShading /></mesh>
+    <mesh position={[0, 0.02, -0.08]} castShadow><boxGeometry args={[0.28, 0.16, 0.34]} /><meshStandardMaterial color={SHOE} roughness={0.8} flatShading /></mesh>
+    <mesh position={[0, -0.02, -0.28]} rotation={[0.12, 0, 0]} castShadow><boxGeometry args={[0.25, 0.11, 0.2]} /><meshStandardMaterial color={SHOE} roughness={0.8} flatShading /></mesh>
+    <mesh position={[0, -0.06, -0.06]} castShadow><boxGeometry args={[0.29, 0.07, 0.52]} /><meshStandardMaterial color="#141620" roughness={0.7} flatShading /></mesh>
   </group>;
 }
 
@@ -301,12 +302,13 @@ function SittingLegs() {
  *  rigid. Bone pivots (hip @0.93, shin @−0.48) are unchanged; the trouser shell hangs off them. */
 function WalkLeg({ hipRef, shinRef, x }: { hipRef: RefObject<THREE.Group | null>; shinRef: RefObject<THREE.Group | null>; x: number }) {
   return <group ref={hipRef} position={[x, 0.93, 0]}>
-    {/* thigh: wider angular trouser shell over a slim thigh */}
-    <mesh position={[0, -0.24, 0.02]} rotation={[0, 0, x < 0 ? -0.05 : 0.05]} castShadow><boxGeometry args={[0.3, 0.52, 0.3]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.97} flatShading /></mesh>
+    {/* thigh: baggy angular trouser shell over a slim thigh */}
+    <mesh position={[0, -0.24, 0.02]} rotation={[0, 0, x < 0 ? -0.05 : 0.05]} castShadow><boxGeometry args={[0.34, 0.54, 0.34]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.97} flatShading /></mesh>
     <mesh position={[0, -0.24, 0]} castShadow><boxGeometry args={[0.2, 0.48, 0.2]} /><meshStandardMaterial color={PANTS_DK} roughness={1} flatShading /></mesh>
     <group ref={shinRef} position={[0, -0.48, 0]}>
-      {/* calf: trouser shell tapering toward the ankle */}
-      <mesh position={[0, -0.24, 0.01]} rotation={[0, 0, x < 0 ? 0.03 : -0.03]} castShadow><boxGeometry args={[0.26, 0.52, 0.27]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.97} flatShading /></mesh>
+      {/* calf: baggy trouser shell that gathers into a cuff at the ankle */}
+      <mesh position={[0, -0.2, 0.01]} rotation={[0, 0, x < 0 ? 0.03 : -0.03]} castShadow><boxGeometry args={[0.3, 0.44, 0.31]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.97} flatShading /></mesh>
+      <mesh position={[0, -0.42, 0.01]} castShadow><boxGeometry args={[0.24, 0.16, 0.26]} /><meshStandardMaterial color={CLOTH_DARK} roughness={1} flatShading /></mesh>
       <mesh position={[0, -0.24, 0]} castShadow><boxGeometry args={[0.18, 0.46, 0.18]} /><meshStandardMaterial color={PANTS_DK} roughness={1} flatShading /></mesh>
       <Shoe y={-0.48} />
     </group>
