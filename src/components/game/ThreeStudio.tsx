@@ -35,6 +35,9 @@ const WALL_MOUNT_DEPTH: Record<string, number> = {
   closet: 0.39, // sliding wardrobe body sits back from its origin
   bathroom: 0.07, // door frame
 };
+/** Tabletop half-thickness: the desk mesh is 0.14 tall anchored at its centre DESK_Y, so its surface
+ *  sits this far above DESK_Y. Desk props are modelled from DESK_Y and lifted by this to rest on top. */
+const DESKTOP_LIFT = 0.07;
 const toWorld = (x: number, y: number): [number, number] => [(x - 640) / UNITS_PER_WORLD, (y - 510) / UNITS_PER_WORLD];
 /** Inverse of toWorld: a floor click's world point back to the logical room coordinate the sim uses. */
 const toLogical = (worldX: number, worldZ: number) => ({ x: worldX * UNITS_PER_WORLD + 640, y: worldZ * UNITS_PER_WORLD + 510 });
@@ -78,8 +81,8 @@ const ROOFTOP_TARGET: [number, number, number] = [0, 1.0, -1.5];
 // Player palette. Kept moody and dark, but lifted off pure black so the producer no longer merges into
 // the night room: the hoodie is a readable dark blue-gray, the pants a darker separated blue-gray, and
 // the shoes stay near-black. `SKIN` is a muted warm tone for the hands.
-const CLOTH = '#333d52'; // hoodie + hood
-const CLOTH_DARK = '#1e2432'; // pants, separated in value from the hoodie
+const CLOTH = '#252b3d'; // deep blue-black hoodie + hood
+const CLOTH_DARK = '#151a28'; // pants, separated in value from the hoodie
 const SKIN = '#caa688'; // hands (understated warmth, low-poly to match NPC2)
 
 type GrooveRefs = {
@@ -189,11 +192,13 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
   // Emotional posture runs when NOT grooving (the tune loop owns the arms/torso while it's active).
   useEmotionalPosture(posture && !groove, refs);
   return <group ref={torso} position={[0, hipY, 0]}>
-    {/* Voxel-like hoodie, now with a slight chest→waist taper so the torso reads as a body, not a block. */}
-    <mesh position={[0, 0.56, 0]} castShadow><boxGeometry args={[0.62, 0.42, 0.38]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
-    <mesh position={[0, 0.2, 0]} castShadow><boxGeometry args={[0.5, 0.42, 0.34]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
-    {/* Wider shoulder yoke — a stronger, less top-heavy silhouette. */}
-    <mesh position={[0, 0.77, 0.02]} castShadow><boxGeometry args={[0.88, 0.2, 0.42]} /><meshStandardMaterial color="#202633" roughness={0.95} /></mesh>
+    {/* Oversized, faceted hoodie: broad shoulders, long hem and a tapered waist match the turnaround silhouette. */}
+    <mesh position={[0, 0.56, 0]} castShadow><boxGeometry args={[0.74, 0.48, 0.44]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
+    <mesh position={[0, 0.2, 0.015]} castShadow><boxGeometry args={[0.62, 0.5, 0.39]} /><meshStandardMaterial color={cloth} roughness={0.96} /></mesh>
+    <mesh position={[0, -0.08, 0.03]} castShadow><boxGeometry args={[0.52, 0.22, 0.35]} /><meshStandardMaterial color={cloth} roughness={0.98} /></mesh>
+    {/* Wide angular shoulder yoke and back drape make the hooded silhouette readable from behind. */}
+    <mesh position={[0, 0.8, 0.03]} castShadow><boxGeometry args={[1.02, 0.22, 0.48]} /><meshStandardMaterial color="#1b2030" roughness={0.95} /></mesh>
+    <mesh position={[0, 0.36, 0.21]} rotation={[Math.PI, 0, 0]} castShadow><coneGeometry args={[0.42, 0.8, 6, 1, true]} /><meshStandardMaterial color="#1b2030" roughness={1} /></mesh>
     {/* warm hoodie drawstring on the chest — the one subtle signature accent (front is −z). */}
     <mesh position={[-0.05, 0.58, -0.185]}><cylinderGeometry args={[0.012, 0.012, 0.17, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
     <mesh position={[0.05, 0.6, -0.185]}><cylinderGeometry args={[0.012, 0.012, 0.14, 6]} /><meshStandardMaterial color="#c9a96a" roughness={0.7} /></mesh>
@@ -202,15 +207,20 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
     {/* Arms hinge at the shoulder with a second joint at the elbow, so they can swing and the forearms can sweep.
         Each forearm ends in a simple sphere hand (low-poly, matching NPC2) for readability while playing/holding. */}
     <group ref={armL} position={[-0.43, 0.66, 0.02]} rotation={[0.05, 0, 0.12]}>
+      {/* Outer sleeve shell follows the arm rig but stays wider and more angular than the limb. */}
+      <mesh position={[0, -0.15, 0.03]} rotation={[0, 0, -0.08]} castShadow><boxGeometry args={[0.3, 0.42, 0.28]} /><meshStandardMaterial color="#1c2231" roughness={1} flatShading /></mesh>
       <mesh position={[0, -0.16, 0]} castShadow><boxGeometry args={[0.18, 0.32, 0.2]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
       <group ref={foreL} position={[0, -0.32, 0]}>
+        <mesh position={[0, -0.14, 0.02]} rotation={[0, 0, -0.04]} castShadow><boxGeometry args={[0.24, 0.32, 0.24]} /><meshStandardMaterial color="#202638" roughness={1} flatShading /></mesh>
         <mesh position={[0, -0.14, 0]} castShadow><boxGeometry args={[0.17, 0.29, 0.19]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
         <mesh position={[0, -0.3, 0]} castShadow><sphereGeometry args={[0.078, 10, 8]} /><meshStandardMaterial color={SKIN} roughness={0.85} /></mesh>
       </group>
     </group>
     <group ref={armR} position={[0.43, 0.66, 0.02]} rotation={[0.05, 0, -0.12]}>
+      <mesh position={[0, -0.15, 0.03]} rotation={[0, 0, 0.08]} castShadow><boxGeometry args={[0.3, 0.42, 0.28]} /><meshStandardMaterial color="#1c2231" roughness={1} flatShading /></mesh>
       <mesh position={[0, -0.16, 0]} castShadow><boxGeometry args={[0.18, 0.32, 0.2]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
       <group ref={foreR} position={[0, -0.32, 0]}>
+        <mesh position={[0, -0.14, 0.02]} rotation={[0, 0, 0.04]} castShadow><boxGeometry args={[0.24, 0.32, 0.24]} /><meshStandardMaterial color="#202638" roughness={1} flatShading /></mesh>
         <mesh position={[0, -0.14, 0]} castShadow><boxGeometry args={[0.17, 0.29, 0.19]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
         <mesh position={[0, -0.3, 0]} castShadow><sphereGeometry args={[0.078, 10, 8]} /><meshStandardMaterial color={SKIN} roughness={0.85} /></mesh>
       </group>
@@ -218,8 +228,8 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
     <mesh position={[0, 0.38, -0.205]}><boxGeometry args={[0.055, 0.62, 0.025]} /><meshStandardMaterial color="#05070c" metalness={0.35} /></mesh>
     {/* Head inset inside a raised hood, pivoted at the neck. Shrunk/narrowed so it's no longer nearly as
         wide as the torso — a less toy-like head-to-body ratio. */}
-    <group ref={head} position={[0, 0.8, 0]}>
-      <mesh position={[0, 0.23, -0.08]} castShadow><boxGeometry args={[0.3, 0.34, 0.29]} /><meshStandardMaterial color="#4b3b3d" roughness={0.95} /></mesh>
+    <group ref={head} position={[0, 0.84, -0.035]} scale={[0.86, 0.86, 0.86]}>
+      <mesh position={[0, 0.23, -0.08]} castShadow><dodecahedronGeometry args={[0.2, 0]} /><meshStandardMaterial color="#4b3b3d" roughness={0.95} flatShading /></mesh>
       {/* Messy low-poly hair peeking from the hood opening — small tufts at the fringe and temples so the
           head reads as a person (even from behind) without growing the hood silhouette. */}
       <mesh position={[0, 0.44, -0.12]} rotation={[0.32, 0, 0]} castShadow><boxGeometry args={[0.3, 0.06, 0.09]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
@@ -227,6 +237,8 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
       <mesh position={[0.07, 0.46, -0.09]} rotation={[0.4, -0.2, -0.15]}><boxGeometry args={[0.06, 0.08, 0.06]} /><meshStandardMaterial color="#2b2530" roughness={1} /></mesh>
       <mesh position={[-0.15, 0.34, -0.05]} rotation={[0.15, 0, 0.35]}><boxGeometry args={[0.07, 0.13, 0.08]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
       <mesh position={[0.15, 0.34, -0.05]} rotation={[0.15, 0, -0.35]}><boxGeometry args={[0.07, 0.13, 0.08]} /><meshStandardMaterial color="#241f27" roughness={1} /></mesh>
+      {/* Deep hood cavity; the face remains inset while the hood creates a strong angular outline. */}
+      <mesh position={[0, 0.34, 0.08]} castShadow><cylinderGeometry args={[0.44, 0.36, 0.68, 8, 1, true]} /><meshStandardMaterial color="#111522" roughness={1} side={THREE.DoubleSide} /></mesh>
       <mesh position={[0, 0.28, 0.06]} castShadow><boxGeometry args={[0.48, 0.5, 0.46]} /><meshStandardMaterial color={cloth} roughness={0.98} /></mesh>
       <mesh position={[0, 0.22, -0.23]}><boxGeometry args={[0.34, 0.36, 0.08]} /><meshStandardMaterial color="#2a2d36" /></mesh>
       {/* Pixel headphones: squared band and chunky ear cups, narrowed to sit on the smaller head. */}
@@ -241,11 +253,11 @@ function UpperBody({ hipY, cloth = CLOTH, groove = false, grooveOffset = 0, post
 
 function StandingLegs() {
   return <>
-    <mesh position={[-0.15, 0.42, 0]} castShadow><boxGeometry args={[0.22, 0.78, 0.24]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
-    <mesh position={[0.15, 0.42, 0]} castShadow><boxGeometry args={[0.22, 0.78, 0.24]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
+    <mesh position={[-0.15, 0.48, 0]} castShadow><boxGeometry args={[0.26, 0.9, 0.28]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
+    <mesh position={[0.15, 0.48, 0]} castShadow><boxGeometry args={[0.26, 0.9, 0.28]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
     {/* shoes point −z (forward), matching the face, so the figure reads as facing/walking forward */}
-    <mesh position={[-0.15, 0.06, -0.1]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
-    <mesh position={[0.15, 0.06, -0.1]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+    <mesh position={[-0.15, 0.07, -0.13]} castShadow><boxGeometry args={[0.3, 0.16, 0.5]} /><meshStandardMaterial color="#07090e" roughness={0.78} /></mesh>
+    <mesh position={[0.15, 0.07, -0.13]} castShadow><boxGeometry args={[0.3, 0.16, 0.5]} /><meshStandardMaterial color="#07090e" roughness={0.78} /></mesh>
   </>;
 }
 
@@ -263,12 +275,14 @@ function SittingLegs() {
 
 /** One leg with a hip and a knee, so the shin can trail/fold during the walk cycle instead of swinging rigid. */
 function WalkLeg({ hipRef, shinRef, x }: { hipRef: RefObject<THREE.Group | null>; shinRef: RefObject<THREE.Group | null>; x: number }) {
-  return <group ref={hipRef} position={[x, 0.85, 0]}>
-    <mesh position={[0, -0.21, 0]} castShadow><boxGeometry args={[0.22, 0.44, 0.24]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
-    <group ref={shinRef} position={[0, -0.43, 0]}>
-      <mesh position={[0, -0.2, 0]} castShadow><boxGeometry args={[0.2, 0.4, 0.22]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
+  return <group ref={hipRef} position={[x, 0.93, 0]}>
+    <mesh position={[0, -0.23, 0.03]} rotation={[0, 0, x < 0 ? -0.04 : 0.04]} castShadow><boxGeometry args={[0.3, 0.5, 0.29]} /><meshStandardMaterial color="#202638" roughness={1} flatShading /></mesh>
+    <mesh position={[0, -0.23, 0]} castShadow><boxGeometry args={[0.22, 0.48, 0.24]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
+    <group ref={shinRef} position={[0, -0.48, 0]}>
+      <mesh position={[0, -0.23, 0.03]} rotation={[0, 0, x < 0 ? 0.03 : -0.03]} castShadow><boxGeometry args={[0.25, 0.5, 0.26]} /><meshStandardMaterial color="#1a2030" roughness={1} flatShading /></mesh>
+      <mesh position={[0, -0.23, 0]} castShadow><boxGeometry args={[0.2, 0.46, 0.22]} /><meshStandardMaterial color={CLOTH_DARK} roughness={0.95} /></mesh>
       {/* toe points −z (forward), matching the face */}
-      <mesh position={[0, -0.42, -0.09]} castShadow><boxGeometry args={[0.2, 0.12, 0.36]} /><meshStandardMaterial color="#07090e" /></mesh>
+      <mesh position={[0, -0.48, -0.11]} castShadow><boxGeometry args={[0.3, 0.16, 0.5]} /><meshStandardMaterial color="#07090e" roughness={0.78} /></mesh>
     </group>
   </group>;
 }
@@ -580,8 +594,8 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   }
   return <group position={[x, 0, z]}>
     <WalkingFigure />
-    {crystal && <EmotionalCrystal y={2.72} />}
-    <ThoughtBubble y={3.12} />
+    {crystal && <EmotionalCrystal y={2.88} />}
+    <ThoughtBubble y={3.26} />
   </group>;
 }
 
@@ -794,7 +808,10 @@ function RoomObject({ object }: { object: StudioObject }) {
   const [x, z] = toWorld(object.x + object.width / 2, object.y + object.height / 2);
   const label = interactionById[object.id]?.label ?? object.id;
   const guitarNotesMinutes = useGameStore((state) => state.guitarNotesMinutes);
-  const baseY = DESKTOP_IDS.has(object.id) ? DESK_Y : TABLE_IDS.has(object.id) ? TABLE2_Y : 0; // gear sits on its table surface
+  // Desk gear is modelled with its base at DESK_Y (the tabletop's centre); DESKTOP_LIFT raises it the
+  // half-thickness up to the true tabletop surface so props rest ON the desk rather than sunk into it.
+  const deskLift = DESKTOP_IDS.has(object.id) ? DESKTOP_LIFT : 0;
+  const baseY = DESKTOP_IDS.has(object.id) ? DESK_Y + DESKTOP_LIFT : TABLE_IDS.has(object.id) ? TABLE2_Y : 0; // gear sits on its table surface
   const ring = Math.max(0.5, Math.max(object.width, object.height) / 150);
   // Wall-mounted models are anchored to the room shell's wall plane rather than to their raw layout
   // position, so they stay flush no matter how the room is sized. The offset is applied along the
@@ -816,7 +833,7 @@ function RoomObject({ object }: { object: StudioObject }) {
   };
   const localZOffset = object.wall ? wallOffset : DESKTOP_IDS.has(object.id) ? DESK_Z_OFFSET : 0;
   return <group position={[x, 0, z]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
-    <group position={[0, 0, localZOffset]}><RoomObjectModel object={object} /></group>
+    <group position={[0, deskLift, localZOffset]}><RoomObjectModel object={object} /></group>
     {(object.id === 'acousticGuitar' || object.id === 'electricGuitar') && guitarNotesMinutes > 0 && <group position={[0, 1.4, 0]}><Sparkles count={26} scale={[1.3, 1.7, 1.2]} size={2.5} speed={1.2} color="#ffd25a" /><Html center position={[0.35, 1.15, 0]} distanceFactor={8}><span className="text-2xl text-[#ffd25a] drop-shadow-[0_0_8px_#d6a447]">♪</span></Html></group>}
     {selected && <>
       {!object.wall && <mesh position={[0, baseY + 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[ring * 0.9, ring * 1.15, 40]} /><meshBasicMaterial color="#e6c34c" transparent opacity={0.85} /></mesh>}

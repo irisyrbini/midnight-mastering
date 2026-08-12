@@ -393,8 +393,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     </group>;
 
     case 'mouse': return <group position={[0, DESK_Y, 0]}>
-      <mesh position={[0, 0.08, 0]} scale={[0.72, 1, 1]} castShadow><sphereGeometry args={[0.17, 10, 6]} /><meshStandardMaterial color="#343b48" roughness={0.42} /></mesh>
-      <mesh position={[0, 0.2, -0.02]}><boxGeometry args={[0.025, 0.02, 0.07]} /><meshStandardMaterial color="#d6a447" emissive="#d6a447" emissiveIntensity={1.2} /></mesh>
+      <mesh position={[0, 0.077, 0]} scale={[0.72, 0.45, 1]} castShadow><sphereGeometry args={[0.17, 10, 6]} /><meshStandardMaterial color="#343b48" roughness={0.42} /></mesh>
+      <mesh position={[0, 0.12, -0.02]}><boxGeometry args={[0.025, 0.02, 0.07]} /><meshStandardMaterial color="#d6a447" emissive="#d6a447" emissiveIntensity={1.2} /></mesh>
     </group>;
 
     // Condenser mic on a small desk stand, with a record LED.
