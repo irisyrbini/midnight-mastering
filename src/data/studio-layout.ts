@@ -53,11 +53,13 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'miniFridge', x: 982, y: 55, width: 86, height: 132, color: '#a8aeb6' },
   // A stylised ukulele leaning beside the bed — interactive (picked up + played). Not a collider.
   { id: 'ukulele', x: 975, y: 545, width: 50, height: 74, color: '#c68a4e' },
-  { id: 'bathroom', x: 1192, y: 610, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
+  // Pushed to the front-right corner, clear of the bed.
+  { id: 'bathroom', x: 1192, y: 690, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
   // Studio exit door mounted flat against the LEFT wall (rotated a quarter turn), moved toward the front
   // corner so it's clear of the (now longer) instrument desk.
   { id: 'entrance', x: -78, y: 600, width: 112, height: 76, color: '#b73545', rotationY: Math.PI / 2 },
-  { id: 'closet', x: 1205, y: 380, width: 94, height: 162, color: '#465164', rotationY: -Math.PI / 2, wall: 'right' },
+  // Slid along the right wall into the clear stretch between the bed and the bathroom (was overlapping the bed).
+  { id: 'closet', x: 1205, y: 520, width: 94, height: 162, color: '#465164', rotationY: -Math.PI / 2, wall: 'right' },
 ];
 
 // ── Object-relative interaction anchors ────────────────────────────────────────────────────────────

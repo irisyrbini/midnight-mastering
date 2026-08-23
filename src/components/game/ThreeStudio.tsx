@@ -614,6 +614,7 @@ const GLB_LIE = '/models/lie.glb'; // Knock_Down (plays once, holds the lying en
 const FBX_TUNE = '/models/maketune.fbx'; // Make-a-Tune (seated at the desk, working on music)
 const FBX_DRINK = '/models/drink.fbx'; // Drink Vodka (seated)
 const FBX_SCROLL = '/models/scroll.fbx'; // Doomscroll (lying, thumbing the phone)
+const FBX_UKULELE = '/models/ukulele.fbx'; // Ukulele performance (standing, strumming)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
 // Root placement for the real seated / lying clips (the clip poses the body; we only place the root).
@@ -737,6 +738,7 @@ function PlayerModel() {
   const tuneFbx = useLoader(FBXLoader, FBX_TUNE);
   const drinkFbx = useLoader(FBXLoader, FBX_DRINK);
   const scrollFbx = useLoader(FBXLoader, FBX_SCROLL);
+  const ukuleleFbx = useLoader(FBXLoader, FBX_UKULELE);
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
   useEffect(() => () => silhouette.dispose(), [silhouette]);
@@ -766,7 +768,8 @@ function PlayerModel() {
     pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'), pickClip(sit, 'sit'), pickClip(lie, 'lie'),
     // tune/drink are SEATED: keep position so the pelvis lowers onto the seat. scroll is placed by LIE_ROOT.
     fbxPick(tuneFbx, 'tune', false, false, true), fbxPick(drinkFbx, 'drink', false, false, true), fbxPick(scrollFbx, 'scroll'),
-  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, tuneFbx, drinkFbx, scrollFbx]);
+    fbxPick(ukuleleFbx, 'ukulele'), // standing strum performance (quaternion-only, upright)
+  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, tuneFbx, drinkFbx, scrollFbx, ukuleleFbx]);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
@@ -783,7 +786,7 @@ function PlayerModel() {
     // Clip per state: walk/run travelling; seated → make-a-tune / drink-vodka / plain sit; lying →
     // doomscroll / sleep; else idle. All real clips — the mixer poses the whole body.
     const want = moving ? (s.running ? 'run' : 'walk')
-      : s.playingUkulele ? 'tune' // standing strum performance reuses the arms-up tune pose
+      : s.playingUkulele ? 'ukulele' // standing strum performance (ukulele.fbx)
       : (lying && s.scrolling) ? 'scroll'
       : lying ? 'lie'
       : (seated && s.workingOnMusic) ? 'tune'
@@ -824,7 +827,7 @@ function PlayerModel() {
 }
 useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
 useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE);
-useLoader.preload(FBXLoader, FBX_TUNE); useLoader.preload(FBXLoader, FBX_DRINK); useLoader.preload(FBXLoader, FBX_SCROLL);
+useLoader.preload(FBXLoader, FBX_TUNE); useLoader.preload(FBXLoader, FBX_DRINK); useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_UKULELE);
 
 /** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
  *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only
@@ -1319,12 +1322,6 @@ function ForegroundClutter() {
     {/* coiled cable */}
     <mesh position={[0, 0.05, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow><torusGeometry args={[0.28, 0.05, 8, 20]} /><meshStandardMaterial color="#1a1e26" roughness={0.85} /></mesh>
     <mesh position={[0.1, 0.07, 0.08]} rotation={[Math.PI / 2, 0.4, 0]}><torusGeometry args={[0.19, 0.045, 8, 18]} /><meshStandardMaterial color="#20242e" roughness={0.85} /></mesh>
-    {/* used mug */}
-    <group position={[0.6, 0, -0.18]}>
-      <mesh position={[0, 0.11, 0]} castShadow><cylinderGeometry args={[0.1, 0.088, 0.22, 14]} /><meshStandardMaterial color="#b3ab9d" roughness={0.7} /></mesh>
-      <mesh position={[0.12, 0.13, 0]} rotation={[0, 0, Math.PI / 2]}><torusGeometry args={[0.05, 0.018, 8, 14, Math.PI]} /><meshStandardMaterial color="#b3ab9d" roughness={0.7} /></mesh>
-      <mesh position={[0, 0.21, 0]}><cylinderGeometry args={[0.084, 0.084, 0.02, 12]} /><meshStandardMaterial color="#3a2c22" roughness={0.6} /></mesh>
-    </group>
     {/* dropped lyric pages */}
     <mesh position={[-0.5, 0.012, 0.32]} rotation={[-Math.PI / 2, 0, 0.35]} castShadow><planeGeometry args={[0.42, 0.56]} /><meshStandardMaterial color="#e7e1d5" roughness={0.95} side={THREE.DoubleSide} /></mesh>
     <mesh position={[-0.33, 0.014, 0.12]} rotation={[-Math.PI / 2, 0, -0.5]}><planeGeometry args={[0.4, 0.54]} /><meshStandardMaterial color="#d8d1c2" roughness={0.95} side={THREE.DoubleSide} /></mesh>

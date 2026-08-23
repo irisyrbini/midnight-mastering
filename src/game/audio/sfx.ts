@@ -93,6 +93,44 @@ export function playKeyboardChord() {
   [261.63, 329.63, 392.0, 523.25].forEach((freq, index) => pluck(ac, freq, t + index * 0.035, 1.35, 'sine', 0.72, 4200));
 }
 
+/** Gritty overdriven power-chord for the guitar effects pedal (waveshaper distortion). */
+export function playDistortion() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const shaper = ac.createWaveShaper();
+  const curve = new Float32Array(256);
+  for (let i = 0; i < 256; i += 1) { const x = (i / 128) - 1; curve[i] = ((3 + 22) * x * 0.9) / (Math.PI + 22 * Math.abs(x)); }
+  shaper.curve = curve; shaper.oversample = '4x';
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2100;
+  const out = ac.createGain(); out.gain.value = 0.14;
+  shaper.connect(lp); lp.connect(out); out.connect(ac.destination);
+  [82.4, 123.5, 164.8].forEach((f) => { // E power chord
+    const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = f;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5, t + 0.012); g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+    osc.connect(g); g.connect(shaper); osc.start(t); osc.stop(t + 1.6);
+  });
+}
+
+/** Dry plastic rattle — pills shaken in a bottle (a burst of short high-passed noise clacks). */
+export function playPillShake() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  for (let i = 0; i < 8; i += 1) {
+    const dur = 0.028;
+    const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let j = 0; j < data.length; j += 1) data[j] = (Math.random() * 2 - 1) * (1 - j / data.length);
+    const src = ac.createBufferSource(); src.buffer = buffer;
+    const filter = ac.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = 3200 + Math.random() * 2200;
+    const gain = ac.createGain(); gain.gain.value = 0.08;
+    src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+    src.start(t + i * 0.055 + Math.random() * 0.025);
+  }
+}
+
 /** Short, non-melodic modular blip used by the collaborator's ambient idle. */
 export function playModularPatch() {
   const ac = audio();
@@ -105,8 +143,8 @@ export function playModularPatch() {
 let rainLoop: { src: AudioBufferSourceNode; gain: GainNode; hail: boolean } | null = null;
 
 /** Rain sits at full level; hail is deliberately mixed well under it so it never buries the music. */
-const RAIN_LEVEL = 0.05;
-const HAIL_LEVEL = RAIN_LEVEL * 0.45;
+const RAIN_LEVEL = 0.024; // gentle background ambience — sits well under the music
+const HAIL_LEVEL = RAIN_LEVEL * 0.5;
 
 export function startRain(hail = false) {
   const ac = audio();
@@ -201,4 +239,6 @@ export function playInteractionSfx(id: string) {
   else if (id === 'modularSynths') playModularPatch();
   else if (id === 'switch') playConsoleBlip();
   else if (id === 'ukulele') playUkuleleStrum();
+  else if (id === 'guitarPedal') playDistortion();
+  else if (id === 'pillBottle') playPillShake();
 }

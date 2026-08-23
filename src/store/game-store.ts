@@ -54,6 +54,7 @@ type GameState = GameSnapshot & {
   friendActivity: FriendActivity | null;
   friendActivityMinutes: number;
   npc2Active: boolean;
+  npc2Leaving: boolean;
   npc2Pos: Point;
   npc2LeaveAt: number;
   /** Where NPC 2 is currently strolling to, and when its current pause ends. */
@@ -336,6 +337,7 @@ const initialSession = () => ({
   friendActivity: null as FriendActivity | null,
   friendActivityMinutes: 0,
   npc2Active: false,
+  npc2Leaving: false,
   npc2Pos: { x: 880, y: 560 } as Point,
   npc2LeaveAt: 0,
   npc2Target: { x: 880, y: 560 } as Point,
@@ -405,7 +407,13 @@ export const useGameStore = create<GameState>((set) => ({
     return snapshot;
   }),
   setDawOpen: (dawOpen) => set({ dawOpen, workingOnMusic: dawOpen ? false : false }),
-  setWorkingOnMusic: (workingOnMusic) => set((state) => ({ workingOnMusic: state.dawOpen ? workingOnMusic : false })),
+  // Working on music seats the producer at the desk (butt on the chair) so the make-tune pose plays; stopping stands them up.
+  setWorkingOnMusic: (workingOnMusic) => set((state) => {
+    const working = state.dawOpen ? workingOnMusic : false;
+    return working
+      ? { workingOnMusic: true, seated: true, lyingDown: false, scrolling: false, playingUkulele: false, playerPosition: SIT_POSITION, moveTarget: null }
+      : { workingOnMusic: false, seated: false };
+  }),
   pause: () => set((state) => (state.phase === 'playing' ? { phase: 'paused' } : state)),
   // Resume also wakes the producer from a forced rest and stands them back up.
   resume: () => set((state) => (state.phase === 'paused' ? { phase: 'playing', sleeping: false, lyingDown: false } : state)),
@@ -572,7 +580,8 @@ export const useGameStore = create<GameState>((set) => ({
       smokingMinutes: Math.max(0, state.smokingMinutes - gameMinutes),
       friendActivity: state.friendActivityMinutes <= gameMinutes ? null : state.friendActivity,
       friendActivityMinutes: Math.max(0, state.friendActivityMinutes - gameMinutes),
-      npc2Active: state.npc2Active && state.elapsedMs < state.npc2LeaveAt,
+      // At the leave time NPC2 doesn't vanish — it enters its leaving phase and walks out the door (stepNpc2).
+      npc2Leaving: state.npc2Active && (state.npc2Leaving || state.elapsedMs >= state.npc2LeaveAt),
       // The one-shot ukulele performance ends on its timer; the prop returns to its spot beside the bed.
       playingUkulele: state.playingUkulele && elapsedMs < state.ukuleleUntil,
       workingOnMusic: state.friendActivity === 'tune' && state.friendActivityMinutes <= gameMinutes ? false : state.workingOnMusic,
@@ -677,7 +686,7 @@ export const useGameStore = create<GameState>((set) => ({
     if (interaction.action === 'ukulele') {
       // Pick up the ukulele where the producer is standing and play a single one-shot performance; the
       // renderer attaches the prop to the hand + strums, and `tick` returns it to the bedside on the timer.
-      return { playingUkulele: true, ukuleleUntil: state.elapsedMs + 4600, seated: false, lyingDown: false, scrolling: false, moveTarget: null,
+      return { playingUkulele: true, ukuleleUntil: state.elapsedMs + 7000, seated: false, lyingDown: false, scrolling: false, workingOnMusic: false, moveTarget: null,
         needs: applyNeedChange(state.needs, interaction.changes), stress: clamp(state.stress + (interaction.stressDelta ?? 0)), lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
     if (interaction.action === 'window') {
@@ -716,7 +725,7 @@ export const useGameStore = create<GameState>((set) => ({
       return { prompt: null, visitorActive: true, visitorPhase: 'arriving' as VisitorPhase, visitorPos: { ...ENTRANCE_POSITION }, visitorLeaveAt: state.elapsedMs + 100000, emotionalGraph: graph, crystal: crystalState(graph), lastInteraction: interactionById.friend ?? state.lastInteraction };
     }
     if (kind === 'invite-friend-2') {
-      return { prompt: null, npc2Active: true, npc2Pos: { x: 880, y: 560 }, npc2Target: { x: 880, y: 560 }, npc2PauseUntil: state.elapsedMs + 900, npc2LeaveAt: state.elapsedMs + 180000, needs: applyNeedChange(state.needs, { social: 10, love: 3 }), stress: clamp(state.stress - 4) };
+      return { prompt: null, npc2Active: true, npc2Leaving: false, npc2Pos: { x: 880, y: 560 }, npc2Target: { x: 880, y: 560 }, npc2PauseUntil: state.elapsedMs + 900, npc2LeaveAt: state.elapsedMs + 180000, needs: applyNeedChange(state.needs, { social: 10, love: 3 }), stress: clamp(state.stress - 4) };
     }
     if (kind === 'doom-scroll') {
       return { prompt: null, lyingDown: true, scrolling: true, seated: false, playerPosition: LIE_POSITION, moveTarget: null, needs: applyNeedChange(state.needs, { social: -8 }), stress: clamp(state.stress + 6), lastInteraction: interactionById.doomscroll ?? state.lastInteraction };
@@ -754,7 +763,8 @@ export const useGameStore = create<GameState>((set) => ({
         return { visitorTarget: pickVisitorSpot(state.visitorPos), visitorPauseUntil: state.elapsedMs + 5000 + Math.random() * 7000, needs: applyNeedChange(state.needs, { social: 0.3 * (deltaMs / 1000) }) };
       }
     }
-    if (goingHome && dist <= 40) return { visitorActive: false }; // out the door
+    if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true }; // opens the door and steps out
+    if (goingHome && dist <= 120) { const vp = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step }; return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
     const visitorPos = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step };
     return { visitorPos };
   }),
@@ -765,6 +775,14 @@ export const useGameStore = create<GameState>((set) => ({
    */
   stepNpc2: (deltaMs) => set((state) => {
     if (!state.npc2Active || state.phase !== 'playing') return state;
+    const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
+    // Leaving: head for the entrance and step out the same door it came in, opening it on the way.
+    if (state.npc2Leaving) {
+      const dx = ENTRANCE_POSITION.x - state.npc2Pos.x, dy = ENTRANCE_POSITION.y - state.npc2Pos.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, entranceOpen: true }; // out the door
+      return { npc2Pos: { x: state.npc2Pos.x + (dx / dist) * step, y: state.npc2Pos.y + (dy / dist) * step }, entranceOpen: dist <= 140 ? true : state.entranceOpen };
+    }
     if (state.elapsedMs < state.npc2PauseUntil) return state; // standing still, taking the room in
     const dx = state.npc2Target.x - state.npc2Pos.x;
     const dy = state.npc2Target.y - state.npc2Pos.y;
@@ -776,7 +794,6 @@ export const useGameStore = create<GameState>((set) => ({
         npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }),
       };
     }
-    const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
     return { npc2Pos: { x: state.npc2Pos.x + (dx / dist) * step, y: state.npc2Pos.y + (dy / dist) * step } };
   }),
 }));

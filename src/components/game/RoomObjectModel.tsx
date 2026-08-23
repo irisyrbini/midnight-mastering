@@ -359,8 +359,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     </group>;
 
     case 'instrumentTable': return <group>
-      <mesh position={[0, TABLE2_Y, 0]} castShadow receiveShadow><boxGeometry args={[4.2, 0.12, 1.9]} /><meshStandardMaterial color="#5a4a4c" roughness={0.6} /></mesh>
-      {[[-1.95, -0.8], [1.95, -0.8], [-1.95, 0.8], [1.95, 0.8]].map(([lx, lz], i) => <mesh key={i} position={[lx, (TABLE2_Y - 0.06) / 2, lz]} castShadow><boxGeometry args={[0.14, TABLE2_Y - 0.06, 0.14]} /><meshStandardMaterial color="#33292b" /></mesh>)}
+      <mesh position={[0, TABLE2_Y, 0]} castShadow receiveShadow><boxGeometry args={[3.35, 0.12, 1.9]} /><meshStandardMaterial color="#5a4a4c" roughness={0.6} /></mesh>
+      {[[-1.5, -0.8], [1.5, -0.8], [-1.5, 0.8], [1.5, 0.8]].map(([lx, lz], i) => <mesh key={i} position={[lx, (TABLE2_Y - 0.06) / 2, lz]} castShadow><boxGeometry args={[0.14, TABLE2_Y - 0.06, 0.14]} /><meshStandardMaterial color="#33292b" /></mesh>)}
     </group>;
 
     // Office chair: seat + backrest (toward the camera) + post + wheeled star base. The producer sits here.
@@ -442,10 +442,11 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     // Phone resting ON TOP of the duvet (blanket top ≈ 0.73 world), not sunk into the mattress.
     // The flat body sits a hair above the bedding and the lit screen a further hair above that,
     // so it reads as casually dropped on the bed with no clipping or z-fighting.
-    case 'bedPhone': return <group position={[0, 0.78, 0]} rotation={[0, -0.4, 0]}>
-      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.32, 0.66, 0.03]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
-      <mesh position={[0, 0.033, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.28, 0.6]} /><meshStandardMaterial color="#3a4a70" emissive="#4a5c8a" emissiveIntensity={1.1} toneMapped={false} /></mesh>
-      <pointLight position={[0, 0.2, 0]} color="#6a7fb8" intensity={0.5} distance={1.4} />
+    case 'bedPhone': return <group position={[0, 0.76, 0]} rotation={[0, -0.4, 0]}>
+      {/* Hand-sized phone (was oversized). */}
+      <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.15, 0.3, 0.02]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
+      <mesh position={[0, 0.026, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.12, 0.26]} /><meshStandardMaterial color="#3a4a70" emissive="#4a5c8a" emissiveIntensity={1.1} toneMapped={false} /></mesh>
+      <pointLight position={[0, 0.16, 0]} color="#6a7fb8" intensity={0.35} distance={1.1} />
     </group>;
 
     case 'lyricNotebook': return <group position={[0, DESK_Y, 0]} rotation={[0, 0.3, 0]}>
@@ -465,8 +466,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
 
     case 'vodka': return <Bottle color="#8fb9c9" height={1.05} />;
     case 'pillBottle': return <group position={[0, DESK_Y, 0]}>
-      <mesh position={[0, 0.2, 0]} castShadow><cylinderGeometry args={[0.13, 0.13, 0.4, 14]} /><meshStandardMaterial color="#d9b64d" /></mesh>
-      <mesh position={[0, 0.42, 0]}><cylinderGeometry args={[0.14, 0.14, 0.06, 14]} /><meshStandardMaterial color="#e7e1d5" /></mesh>
+      <mesh position={[0, 0.12, 0]} castShadow><cylinderGeometry args={[0.08, 0.08, 0.24, 14]} /><meshStandardMaterial color="#d9b64d" /></mesh>
+      <mesh position={[0, 0.255, 0]}><cylinderGeometry args={[0.09, 0.09, 0.045, 14]} /><meshStandardMaterial color="#e7e1d5" /></mesh>
     </group>;
     case 'redBull': return <mesh position={[0, DESK_Y + 0.24, 0]} castShadow><cylinderGeometry args={[0.13, 0.13, 0.46, 16]} /><meshStandardMaterial color="#d05e55" metalness={0.3} roughness={0.4} /></mesh>;
 
