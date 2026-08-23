@@ -19,8 +19,11 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'posters4', x: 312, y: 84, width: 100, height: 78, color: '#4a3550', wall: 'back' },
   { id: 'ledLights', x: 680, y: 62, width: 360, height: 22, color: '#b73545', shape: 'light', wall: 'back' },
   { id: 'shelves', x: 1040, y: 106, width: 112, height: 154, color: '#5e5560', wall: 'back' },
-  { id: 'instrumentTable', x: 60, y: 250, width: 250, height: 180, color: '#5a4a4c' },
-  { id: 'modularSynths', x: 98, y: 225, width: 170, height: 105, color: '#61455a' },
+  // Extended to the right so its right edge sits side-by-side with the main desk's left edge (one long
+  // counter). The model box + legs are lengthened to match (RoomObjectModel case 'instrumentTable').
+  { id: 'instrumentTable', x: 60, y: 250, width: 340, height: 180, color: '#5a4a4c' },
+  // Synth faces the WINDOW (rotated 180°); NPC1 performs from the window side (see SYNTH_PERFORMANCE_ANCHOR).
+  { id: 'modularSynths', x: 143, y: 225, width: 170, height: 105, color: '#61455a', rotationY: Math.PI },
   { id: 'musicDesk', x: 492, y: 202, width: 350, height: 160, color: '#6c5b5c' },
   { id: 'chair', x: 604, y: 430, width: 90, height: 100, color: '#20242c' },
   { id: 'friendChair', x: 704, y: 430, width: 90, height: 100, color: '#292d36' },
@@ -28,8 +31,8 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'mic', x: 484, y: 300, width: 46, height: 46, color: '#20242c' },
   { id: 'laptop', x: 626, y: 270, width: 92, height: 58, color: '#54728c' },
   { id: 'studioMonitors', x: 603, y: 180, width: 120, height: 60, color: '#d9d9d0' },
-  { id: 'portasound', x: 75, y: 342, width: 154, height: 55, color: '#d8c6a4' },
-  { id: 'sk5', x: 237, y: 348, width: 100, height: 48, color: '#aeb2b3' },
+  { id: 'portasound', x: 120, y: 342, width: 154, height: 55, color: '#d8c6a4' },
+  { id: 'sk5', x: 282, y: 348, width: 100, height: 48, color: '#aeb2b3' },
   { id: 'audioInterface', x: 752, y: 267, width: 54, height: 44, color: '#b73545' },
   { id: 'mechanicalKeyboard', x: 595, y: 358, width: 112, height: 30, color: '#20242c' },
   { id: 'mouse', x: 701, y: 359, width: 30, height: 28, color: '#343b48' },
@@ -51,8 +54,9 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   // A stylised ukulele leaning beside the bed — interactive (picked up + played). Not a collider.
   { id: 'ukulele', x: 975, y: 545, width: 50, height: 74, color: '#c68a4e' },
   { id: 'bathroom', x: 1192, y: 610, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
-  // Studio exit door mounted flat against the LEFT wall (rotated a quarter turn), out of the open floor.
-  { id: 'entrance', x: -78, y: 430, width: 112, height: 76, color: '#b73545', rotationY: Math.PI / 2 },
+  // Studio exit door mounted flat against the LEFT wall (rotated a quarter turn), moved toward the front
+  // corner so it's clear of the (now longer) instrument desk.
+  { id: 'entrance', x: -78, y: 600, width: 112, height: 76, color: '#b73545', rotationY: Math.PI / 2 },
   { id: 'closet', x: 1205, y: 380, width: 94, height: 162, color: '#465164', rotationY: -Math.PI / 2, wall: 'right' },
 ];
 
@@ -87,14 +91,15 @@ export const CHAIR_SIT_ANCHOR = objectCenter('chair');
 export const BED_LIE_ANCHOR = objectCenter('bed');
 export const ENTRANCE_ANCHOR = objectCenter('entrance');
 
-// Modular synth performance: NPC1 stands IN FRONT of the instrument table (never inside it) aligned to the
-// synth, and faces the synth controls. Derived from the (moved) table + synth, so it follows them.
-export const SYNTH_CENTER = objectCenter('modularSynths', { x: 183, y: 277 });
+// Modular synth performance: the synth faces the WINDOW (rotated 180°), so NPC1 performs from the WINDOW
+// SIDE — behind the table, clear of its scaled footprint — and faces the synth controls. Derived from the
+// (moved) table + synth so it follows them.
+export const SYNTH_CENTER = objectCenter('modularSynths', { x: 228, y: 277 });
 export const SYNTH_PERFORMANCE_ANCHOR: Point = (() => {
   const table = objectById('instrumentTable');
   return {
     x: SYNTH_CENTER.x,
-    y: table ? table.y + table.height / 2 + (table.height * FOOTPRINT_SCALE) / 2 + 40 : 500,
+    y: table ? Math.max(160, table.y + table.height / 2 - (table.height * FOOTPRINT_SCALE) / 2 - 40) : 180,
   };
 })();
 

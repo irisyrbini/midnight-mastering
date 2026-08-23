@@ -242,18 +242,23 @@ function WindowUnit({ width = 3.8, celestial = true }: { width?: number; celesti
     if (clouds.current) { clouds.current.position.x = ((clouds.current.position.x + delta * 0.08 + 2) % 4) - 2; } // slow drift, wrapped
   });
   return <group position={[0, 2.2, 0]}>
-    <mesh><boxGeometry args={[width, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    {/* Frame drawn as a BORDER (four bars), NOT a solid panel — a solid panel would sit in front of the
+        recessed sky/sun/moon and hide them. The open centre lets the sky show through the glass. */}
+    <mesh position={[0, 1.28, 0]}><boxGeometry args={[width, 0.2, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    <mesh position={[0, -1.28, 0]}><boxGeometry args={[width, 0.2, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    <mesh position={[-width / 2 + 0.1, 0, 0]}><boxGeometry args={[0.2, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
+    <mesh position={[width / 2 - 0.1, 0, 0]}><boxGeometry args={[0.2, 2.6, 0.12]} /><meshStandardMaterial color="#2a3a4d" /></mesh>
     {/* Sky backdrop recessed to the back of the frame opening. */}
-    <mesh position={[0, 0, -0.05]}><planeGeometry args={[width - 0.3, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
+    <mesh position={[0, 0, -0.05]}><planeGeometry args={[width - 0.3, 2.4]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
     {/* Everything below is inside the opening (z ≤ 0), so nothing protrudes into the room. */}
     <group scale={[width / 3.8, 1, 1]}>
       {/* The single sun: a FLAT disc (2D) so it can never poke through the glass — it sits recessed on
           the sky plane and faces the room (+z), only the main window draws it. */}
-      {celestial && daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, -0.03]}><circleGeometry args={[0.16 + daylight * 0.1, 28]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} side={THREE.DoubleSide} /></mesh>}
+      {celestial && daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, -0.03]}><circleGeometry args={[0.24 + daylight * 0.1, 28]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} side={THREE.DoubleSide} /></mesh>}
       {/* The moon takes the same window at night, opposite the sun — also a flat disc. */}
-      {celestial && daylight < 0.35 && <mesh position={[0.95, 0.6, -0.03]}><circleGeometry args={[0.15, 28]} /><meshStandardMaterial color="#e8ecf5" emissive="#cfd8ec" emissiveIntensity={1.5} toneMapped={false} side={THREE.DoubleSide} /></mesh>}
-      {daylight < 0.42 && <group position={[0, 0.2, -0.02]}><Sparkles count={46} scale={[3.2, 1.9, 0.2]} size={2.6} speed={0.35} color="#dfe8ff" /></group>}
-      {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, -0.02]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
+      {celestial && daylight < 0.35 && <mesh position={[0.95, 0.62, -0.03]}><circleGeometry args={[0.22, 28]} /><meshStandardMaterial color="#e8ecf5" emissive="#cfd8ec" emissiveIntensity={1.8} toneMapped={false} side={THREE.DoubleSide} /></mesh>}
+      {daylight < 0.42 && <group position={[0, 0.2, -0.02]}><Sparkles count={60} scale={[width - 0.6, 2.0, 0.2]} size={3.4} speed={0.35} color="#dfe8ff" /></group>}
+      {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2], [-0.6, -0.5], [1.15, 0.4]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, -0.02]}><sphereGeometry args={[0.04, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3.4} toneMapped={false} /></mesh>)}
       {/* Drifting clouds, faint by day and lit by the city glow at night. */}
       <group ref={clouds} position={[0, 0.6, -0.025]}>
         {[[-1.3, 0.1], [0.2, 0.35], [1.5, -0.1]].map(([cx, cy], i) => <mesh key={`cl${i}`} position={[cx, cy, 0]}><boxGeometry args={[0.9, 0.22, 0.02]} /><meshStandardMaterial color={daylight > 0.4 ? '#e9f1fb' : '#3a4a63'} emissive={daylight > 0.4 ? '#cddcf0' : '#26364f'} emissiveIntensity={daylight > 0.4 ? 0.3 : 0.5} transparent opacity={0.75} /></mesh>)}
@@ -354,8 +359,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     </group>;
 
     case 'instrumentTable': return <group>
-      <mesh position={[0, TABLE2_Y, 0]} castShadow receiveShadow><boxGeometry args={[2.9, 0.12, 1.9]} /><meshStandardMaterial color="#5a4a4c" roughness={0.6} /></mesh>
-      {[[-1.3, -0.8], [1.3, -0.8], [-1.3, 0.8], [1.3, 0.8]].map(([lx, lz], i) => <mesh key={i} position={[lx, (TABLE2_Y - 0.06) / 2, lz]} castShadow><boxGeometry args={[0.14, TABLE2_Y - 0.06, 0.14]} /><meshStandardMaterial color="#33292b" /></mesh>)}
+      <mesh position={[0, TABLE2_Y, 0]} castShadow receiveShadow><boxGeometry args={[4.2, 0.12, 1.9]} /><meshStandardMaterial color="#5a4a4c" roughness={0.6} /></mesh>
+      {[[-1.95, -0.8], [1.95, -0.8], [-1.95, 0.8], [1.95, 0.8]].map(([lx, lz], i) => <mesh key={i} position={[lx, (TABLE2_Y - 0.06) / 2, lz]} castShadow><boxGeometry args={[0.14, TABLE2_Y - 0.06, 0.14]} /><meshStandardMaterial color="#33292b" /></mesh>)}
     </group>;
 
     // Office chair: seat + backrest (toward the camera) + post + wheeled star base. The producer sits here.

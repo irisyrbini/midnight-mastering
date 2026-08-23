@@ -668,25 +668,32 @@ function pickClip(g: { animations: THREE.AnimationClip[] }, name: string, basePo
 //    character by bone name. We keep ONLY the quaternion tracks: rotation is unit-agnostic (a clip authored
 //    in centimetres poses a metre-scaled mesh correctly) and dropping the position/scale tracks removes the
 //    cm-scale root drift — the sim places the root itself. ──
-function fbxRotationClip(src: THREE.AnimationClip | undefined, name: string, dropRoot = false): THREE.AnimationClip | undefined {
+function fbxRotationClip(src: THREE.AnimationClip | undefined, name: string, dropRoot = false, keepPosition = false): THREE.AnimationClip | undefined {
   if (!src) return undefined;
   const c = src.clone();
-  // Keep rotation only. `dropRoot` also drops the Hips (root) track: when a clip is lifted from a file
-  // whose export up-axis differs from the target mesh, the root world-orientation is inconsistent and
-  // flips the body — but the per-limb rotations (relative to the root) are shared across the same rig,
-  // so dropping the root leaves the body at the mesh's upright bind while the limbs still animate.
-  c.tracks = c.tracks.filter((t) => /\.quaternion$/.test(t.name) && !(dropRoot && /^Hips\./.test(t.name)));
+  // Keep rotation (and, for metre-scale clips, `keepPosition` also keeps the Hips/limb TRANSLATION so a
+  // seated pose actually lowers the pelvis onto the seat instead of bending at standing hip height). Scale
+  // tracks are always dropped. `dropRoot` also drops the Hips (root) track: when a clip is lifted from a
+  // file whose export up-axis differs from the target mesh the root world-orientation flips the body, but
+  // the per-limb rotations (relative to the root) are shared across the same rig, so dropping the root
+  // leaves the body at the mesh's upright bind while the limbs still animate.
+  c.tracks = c.tracks.filter((t) => {
+    if (dropRoot && /^Hips\./.test(t.name)) return false;
+    if (/\.quaternion$/.test(t.name)) return true;
+    if (keepPosition && /\.position$/.test(t.name)) return true;
+    return false;
+  });
   c.name = name;
   return c;
 }
 /** Pick the meaningful clip from an FBX group: the one carrying motion (skip the 0.07s `clip0` base pose
- *  unless `basePose` explicitly wants that static standing pose), then reduce it to rotation-only. */
-function fbxPick(g: { animations: THREE.AnimationClip[] }, name: string, basePose = false, dropRoot = false): THREE.AnimationClip | undefined {
+ *  unless `basePose` explicitly wants that static standing pose), then reduce its tracks. */
+function fbxPick(g: { animations: THREE.AnimationClip[] }, name: string, basePose = false, dropRoot = false, keepPosition = false): THREE.AnimationClip | undefined {
   const anims = g.animations ?? [];
   const src = basePose
     ? (anims.find((a) => /clip0|baselayer/i.test(a.name)) ?? anims[0])
     : (anims.find((a) => !/clip0/i.test(a.name)) ?? anims[0]);
-  return fbxRotationClip(src, name, dropRoot);
+  return fbxRotationClip(src, name, dropRoot, keepPosition);
 }
 /** Scale factor that makes `root` stand `targetHeight` world units tall, whatever units the source used
  *  (FBX often imports in centimetres). Measured from the world-space bounding box after cloning. */
@@ -757,7 +764,8 @@ function PlayerModel() {
   }, [playingUkulele, scene, handUke]);
   const clips = useMemo(() => [
     pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'), pickClip(sit, 'sit'), pickClip(lie, 'lie'),
-    fbxPick(tuneFbx, 'tune'), fbxPick(drinkFbx, 'drink'), fbxPick(scrollFbx, 'scroll'),
+    // tune/drink are SEATED: keep position so the pelvis lowers onto the seat. scroll is placed by LIE_ROOT.
+    fbxPick(tuneFbx, 'tune', false, false, true), fbxPick(drinkFbx, 'drink', false, false, true), fbxPick(scrollFbx, 'scroll'),
   ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, tuneFbx, drinkFbx, scrollFbx]);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
