@@ -398,13 +398,16 @@ export const useGameStore = create<GameState>((set) => ({
   ...initialSession(),
   setPhase: (phase) => set({ phase }),
   hydrateSession: (snapshot) => set((state) => {
-    const next = { ...state, ...snapshot } as GameState;
+    // Transient one-shot performance states must never persist across a load, or a save captured mid-pose
+    // strands the character in it (e.g. stuck holding the ukulele, which also blocks sitting).
+    const cleaned = { ...snapshot, playingUkulele: false, ukuleleUntil: 0 } as Partial<GameSnapshot>;
+    const next = { ...state, ...cleaned } as GameState;
     // Safety net: a save written inside the car with no ride in flight would strand the player in a
     // room with no exit, so put them back in the studio instead.
     if (next.activeLocationId === 'elevator' && !next.elevatorTo) {
-      return { ...snapshot, activeLocationId: 'apartment-hallway', playerPosition: { x: 640, y: 620 }, moveTarget: null };
+      return { ...cleaned, activeLocationId: 'apartment-hallway', playerPosition: { x: 640, y: 620 }, moveTarget: null };
     }
-    return snapshot;
+    return cleaned;
   }),
   setDawOpen: (dawOpen) => set({ dawOpen, workingOnMusic: dawOpen ? false : false }),
   // Working on music seats the producer at the desk (butt on the chair) so the make-tune pose plays; stopping stands them up.
