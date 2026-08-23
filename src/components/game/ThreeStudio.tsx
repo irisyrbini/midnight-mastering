@@ -1,10 +1,11 @@
 'use client';
 
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { Html, Sparkles, OrbitControls } from '@react-three/drei';
+import { Html, Sparkles, OrbitControls, useGLTF, useAnimations } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { Suspense, useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { STUDIO_OBJECTS, type StudioObject } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
 import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, useGameStore } from '@/store/game-store';
@@ -60,14 +61,28 @@ function CameraRig() {
   return <OrbitControls ref={controls} makeDefault target={[0, 1.2, -1]} enablePan={false} enableZoom minDistance={7 * ROOM_SCALE} maxDistance={24 * ROOM_SCALE} minPolarAngle={Math.PI * 0.16} maxPolarAngle={Math.PI * 0.46} enableDamping dampingFactor={0.12} />;
 }
 
+/**
+ * The emotional crystal that floats over the producer's head: the original 6-point asterisk (three
+ * crossed bars), recoloured with the crystal state (red → yellow → green) and glowing so it blooms.
+ * Gentle in-plane twinkle + hover; sized to sit above the head.
+ */
 function EmotionalCrystal({ y }: { y: number }) {
   const state = useGameStore((store) => store.crystal);
   const color = crystalColor[state];
-  return <group position={[0, y, 0]}>
-    {[0, Math.PI / 3, -Math.PI / 3].map((rotation) => <mesh key={rotation} rotation={[0, 0, rotation]}>
-      <boxGeometry args={[0.09, 0.6, 0.09]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.5} />
-    </mesh>)}
-    <pointLight color={color} intensity={4} distance={4} /><Sparkles count={12} scale={0.9} size={1.4} color={color} />
+  const spin = useRef<THREE.Group>(null);
+  const float = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    if (spin.current) spin.current.rotation.z = t * 0.5; // slow in-plane twinkle
+    if (float.current) float.current.position.y = y + Math.sin(t * 1.5) * 0.06; // gentle hover
+  });
+  return <group ref={float} position={[0, y, 0]}>
+    <group ref={spin}>
+      {[0, Math.PI / 3, -Math.PI / 3].map((r) => <mesh key={r} rotation={[0, 0, r]} castShadow>
+        <boxGeometry args={[0.08, 0.5, 0.08]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.5} toneMapped={false} />
+      </mesh>)}
+    </group>
+    <pointLight color={color} intensity={2.6} distance={3.4} /><Sparkles count={10} scale={0.7} size={1.3} color={color} />
   </group>;
 }
 
@@ -581,7 +596,147 @@ function ThoughtBubble({ y }: { y: number }) {
   </Html>;
 }
 
-/** A stylised human silhouette. Swaps between standing/walking, seated and lying poses. */
+// ── Rigged GLB player (Meshy "Midnight Listener"). Loads the skinned mesh once and drives it from the
+//    same store state as the procedural figure: follows playerPosition, faces travel, crossfades
+//    idle/walk/run. Jonny's export has no sit/lie clip, so the seated & lying poses are produced by
+//    posing the GLB's own bones (never by reverting to the old procedural body). ──
+const GLB_IDLE = '/models/idle.glb';
+const GLB_WALK = '/models/walking.glb';
+const GLB_RUN = '/models/running.glb';
+const GLB_SIT = '/models/sit.glb'; // Sit_and_Doze_Off (loops)
+const GLB_LIE = '/models/lie.glb'; // Knock_Down_on_bed (plays once, holds the lying end pose)
+const GLB_SCROLL = '/models/scroll.glb'; // Lie_Down_Hands_Spread_doomscroll (holds the end pose)
+const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
+const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
+// Root placement for the real seated / lying clips (the clip poses the body; we only place the root).
+// Raised to meet the enlarged (FURNITURE_SCALE) chair seat and mattress.
+const SEAT_ROOT_Y = 0.22; // meet the taller chair seat
+const SEAT_ROOT_Z = -0.1; // settle back into the chair
+const LIE_ROOT_Y = 0.9; // lift onto the (taller) mattress surface
+const LIE_ROOT_Z = -0.2; // slide toward the pillow
+const LIE_YAW = Math.PI / 2; // align the lying body along the bed (head toward −x)
+
+// ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
+//    look we override it at runtime with a matte near-black material so the character reads as a moving
+//    black graphic figure rather than a textured 3D person. It's REVERSIBLE — the original material is
+//    stashed on userData and 'original' mode restores it — and it never touches bones/skin/clips, only
+//    the material slot, so animation is unaffected. Dev-only art-direction toggle (not player-facing). ──
+type CharacterRenderMode = 'original' | 'silhouette' | 'unlit-silhouette';
+const CHARACTER_RENDER_MODE: CharacterRenderMode = 'silhouette';
+const SILHOUETTE_COLOR = '#0e1119'; // dark blue-black charcoal (in the #080A0F–#111520 range)
+
+/** One shared silhouette material for the character. 'silhouette' = matte MeshStandard that still takes
+ *  the room light (so shoulders/locs/legs keep subtle form); 'unlit-silhouette' = flat MeshBasic black
+ *  contour for comparison. Created once and reused — never per frame. */
+function createMMHASilhouetteMaterial(mode: CharacterRenderMode, color: string = SILHOUETTE_COLOR): THREE.Material {
+  if (mode === 'unlit-silhouette') return new THREE.MeshBasicMaterial({ color });
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0 });
+}
+
+/** Swap every character mesh's material for `mat` (silhouette) or restore the stashed original, in place.
+ *  Only touches meshes inside the passed player-character root, so environment assets are never affected. */
+function applyCharacterSilhouette(root: THREE.Object3D, mode: CharacterRenderMode, mat: THREE.Material) {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (m.userData.originalMaterial === undefined) m.userData.originalMaterial = m.material; // stash once for restore
+    m.material = mode === 'original' ? (m.userData.originalMaterial as THREE.Material) : mat;
+  });
+}
+
+/** Grab one clip from a GLB and rename it to a stable key. The idle.glb (Meshy `019ff778` canonical)
+ *  ships TWO clips — a `rigify_clip` test motion and the `clip0`/baselayer STATIC base pose — so we
+ *  prefer the base-layer/clip0 pose and never the rigify motion. Single-clip files just take [0]. */
+function pickClip(g: { animations: THREE.AnimationClip[] }, name: string, basePose = false): THREE.AnimationClip | undefined {
+  const anims = g.animations ?? [];
+  const src = basePose
+    ? (anims.find((a) => /baselayer|clip0/i.test(a.name)) ?? anims.find((a) => !/rigify/i.test(a.name)) ?? anims[0])
+    : anims[0];
+  const c = src?.clone(); if (c) c.name = name; return c;
+}
+
+// Bone handles used to pose the GLB skeleton procedurally (seated legs, arms-down idle) on top of / in
+// place of a clip. Shared by all three characters (identical 24-bone rig).
+type PoseBones = { ulL?: THREE.Object3D; ulR?: THREE.Object3D; lL?: THREE.Object3D; lR?: THREE.Object3D; spine?: THREE.Object3D; aL?: THREE.Object3D; aR?: THREE.Object3D; fL?: THREE.Object3D; fR?: THREE.Object3D };
+function grabPoseBones(root: THREE.Object3D): PoseBones {
+  const g = (n: string) => root.getObjectByName(n) ?? undefined;
+  return { ulL: g('LeftUpLeg'), ulR: g('RightUpLeg'), lL: g('LeftLeg'), lR: g('RightLeg'), spine: g('Spine'), aL: g('LeftArm'), aR: g('RightArm'), fL: g('LeftForeArm'), fR: g('RightForeArm') };
+}
+function PlayerModel() {
+  const idle = useGLTF(GLB_IDLE);
+  const walk = useGLTF(GLB_WALK);
+  const run = useGLTF(GLB_RUN);
+  const sit = useGLTF(GLB_SIT);
+  const lie = useGLTF(GLB_LIE);
+  const scroll = useGLTF(GLB_SCROLL);
+  // One reusable silhouette material for this instance (created once, disposed on unmount).
+  const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
+  useEffect(() => () => silhouette.dispose(), [silhouette]);
+  // Clone the mesh from the WALK file (a clean Armature skeleton) so every clip — walk, run, and the
+  // idle base pose lifted from idle.glb — binds by bone name. Shadow-enable + apply the silhouette.
+  // Bone handles are for procedural seated/lying posing (the export has no sit/lie clip).
+  const bones = useRef<PoseBones>({});
+  const scene = useMemo(() => {
+    const root = cloneSkeleton(walk.scene) as THREE.Object3D;
+    root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
+    applyCharacterSilhouette(root, CHARACTER_RENDER_MODE, silhouette);
+    bones.current = grabPoseBones(root);
+    return root;
+  }, [walk.scene, silhouette]);
+  const clips = useMemo(() => [pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'), pickClip(sit, 'sit'), pickClip(lie, 'lie'), pickClip(scroll, 'scroll')].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scroll]);
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(clips, scene);
+  const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
+  useFrame((_, dt) => {
+    const s = useGameStore.getState();
+    const g = group.current; if (!g) return;
+    const seated = s.seated, lying = s.lyingDown;
+    const [x, z] = toWorld(s.playerPosition.x, s.playerPosition.y);
+    const c = st.current;
+    if (!c.ready) { c.x = x; c.z = z; c.ready = true; }
+    const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
+    const moving = !seated && !lying && Math.hypot(dx, dz) > 0.0015;
+    const ease = Math.min(1, dt * 10);
+    // Clip per state: walk/run travelling, sit at the desk, lie/scroll on the bed, else idle. All are
+    // real clips now — the mixer poses the whole body, so no procedural bone posing is needed.
+    const want = moving ? (s.running ? 'run' : 'walk') : seated ? 'sit' : lying ? (s.scrolling ? 'scroll' : 'lie') : 'idle';
+    if (want !== c.clip) {
+      const prev = actions[c.clip]; if (prev) prev.fadeOut(0.2);
+      const next = actions[want];
+      if (next) {
+        next.reset();
+        const once = want === 'lie' || want === 'scroll'; // fall onto the bed once, then hold the pose
+        next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
+        next.clampWhenFinished = once;
+        next.fadeIn(0.2).play();
+      }
+      c.clip = want;
+    }
+    // Root transform per pose. The parent <Player> group already sits at the chair/bed (playerPosition
+    // is SIT_POSITION / LIE_POSITION); the clip poses the body, we only place + orient the root.
+    if (lying) {
+      g.position.set(0, LIE_ROOT_Y, LIE_ROOT_Z);
+      c.facing += (LIE_YAW - c.facing) * ease;
+      g.rotation.set(0, c.facing, 0);
+    } else if (seated) {
+      g.position.set(0, SEAT_ROOT_Y, SEAT_ROOT_Z);
+      c.facing += (Math.PI - c.facing) * ease; // face the desk (−z)
+      g.rotation.set(0, c.facing, 0);
+    } else {
+      g.position.set(0, 0, 0);
+      if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 14); }
+      g.rotation.set(0, c.facing, 0);
+    }
+  });
+  return <group ref={group} scale={MODEL_SCALE}><primitive object={scene} /></group>;
+}
+useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
+useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE); useGLTF.preload(GLB_SCROLL);
+
+/** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
+ *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only
+ *  carries the overlays that ride along with him: the cigarette, seated-collab props, the doom-scroll
+ *  phone, the crystal, and the thought bubble — each positioned for the current pose. */
 function Player({ crystal = true }: { crystal?: boolean } = {}) {
   const position = useGameStore((state) => state.playerPosition);
   const seated = useGameStore((state) => state.seated);
@@ -589,41 +744,26 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   const scrolling = useGameStore((state) => state.scrolling);
   const friendActivity = useGameStore((state) => state.friendActivity);
   const [x, z] = toWorld(position.x, position.y);
-  if (lyingDown) {
-    // Lie ON the bedding, not sunk into it. The upright body is tipped onto its back (head toward +z,
-    // onto the pillow); the group Y is set so the back of the torso rests just below the duvet surface
-    // (world ≈ 0.73) with only a small realistic sink, keeping the whole body above the mattress.
-    return <group position={[x, 0, z]}>
-      <group position={[0, 0.86, -0.95]} rotation={[Math.PI / 2, 0, 0]}>
-        <UpperBody hipY={0.82} />
-        <StandingLegs />
-      </group>
-      {/* doom-scrolling: a glowing phone held up over the face (tracks the raised lying body) */}
-      {scrolling && <group position={[0, 1.28, 0.5]}>
-        <mesh rotation={[-0.6, 0, 0]}><boxGeometry args={[0.24, 0.44, 0.02]} /><meshStandardMaterial color="#0c0e14" /></mesh>
-        <mesh position={[0, 0, 0.02]} rotation={[-0.6, 0, 0]}><planeGeometry args={[0.2, 0.38]} /><meshStandardMaterial color="#3a4a70" emissive="#5468a0" emissiveIntensity={1.3} toneMapped={false} /></mesh>
-        <pointLight color="#6a7fb8" intensity={0.7} distance={1.2} />
-      </group>}
-      {crystal && <EmotionalCrystal y={1.5} />}
-      <ThoughtBubble y={1.9} />
-    </group>;
-  }
-  if (seated) {
-    return <group position={[x, 0, z]}>
-      <SittingLegs />
-      <UpperBody hipY={0.62} groove={friendActivity === 'tune'} posture={friendActivity !== 'tune'} />
-      {friendActivity === 'tune' && <TunePerformance />}
-      {friendActivity === 'vodka' && <mesh position={[0.24, 1.05, -0.42]}><cylinderGeometry args={[0.08, 0.1, 0.52, 12]} /><meshStandardMaterial color="#52758e" transparent opacity={0.8} /></mesh>}
-      {friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
-      <SmokingEffect hipY={0.62} />
-      {crystal && <EmotionalCrystal y={2.22} />}
-      <ThoughtBubble y={2.62} />
-    </group>;
-  }
+  // Overlay anchor heights track the pose: low while lying, mid while seated, high while standing.
+  const crystalY = lyingDown ? 1.5 : seated ? 2.5 : 3.25;
+  const thoughtY = lyingDown ? 1.9 : seated ? 2.9 : 3.75;
+  const smokeHipY = lyingDown ? 0.8 : seated ? 0.72 : 0.95;
   return <group position={[x, 0, z]}>
-    <WalkingFigure />
-    {crystal && <EmotionalCrystal y={2.88} />}
-    <ThoughtBubble y={3.26} />
+    <Suspense fallback={<WalkingFigure />}><PlayerModel /></Suspense>
+    {/* Smoking rides the body in every state (was lost when the GLB replaced the procedural walker). */}
+    <SmokingEffect hipY={smokeHipY} />
+    {/* Seated collaboration props. */}
+    {seated && friendActivity === 'tune' && <TunePerformance />}
+    {seated && friendActivity === 'vodka' && <mesh position={[0.24, 1.05, -0.42]}><cylinderGeometry args={[0.08, 0.1, 0.52, 12]} /><meshStandardMaterial color="#52758e" transparent opacity={0.8} /></mesh>}
+    {seated && friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
+    {/* Doom-scrolling: a glowing phone held up over the lying body. */}
+    {lyingDown && scrolling && <group position={[0, 1.28, 0.5]}>
+      <mesh rotation={[-0.6, 0, 0]}><boxGeometry args={[0.24, 0.44, 0.02]} /><meshStandardMaterial color="#0c0e14" /></mesh>
+      <mesh position={[0, 0, 0.02]} rotation={[-0.6, 0, 0]}><planeGeometry args={[0.2, 0.38]} /><meshStandardMaterial color="#3a4a70" emissive="#5468a0" emissiveIntensity={1.3} toneMapped={false} /></mesh>
+      <pointLight color="#6a7fb8" intensity={0.7} distance={1.2} />
+    </group>}
+    {crystal && <EmotionalCrystal y={crystalY} />}
+    <ThoughtBubble y={thoughtY} />
   </group>;
 }
 
@@ -668,7 +808,8 @@ function TunePerformance() {
   return <group ref={body}><Sparkles count={8} scale={[0.7, 0.8, 0.5]} size={1.2} speed={1.6} color="#e6c34c" /></group>;
 }
 
-function Visitor() {
+/** Procedural fallback body for Path (NPC1) — shown only while the Shadow Frequency GLB streams in. */
+function VisitorProcedural() {
   const active = useGameStore((state) => state.visitorActive);
   const vpos = useGameStore((state) => state.visitorPos);
   const ppos = useGameStore((state) => state.playerPosition);
@@ -716,6 +857,102 @@ function Visitor() {
   </group>;
 }
 
+// ── Path = NPC1, rendered with the Meshy "Shadow Frequency" GLB (same 24-bone rig as Jonny, so it reuses
+//    the GLB-driver + silhouette system). Path is driven ENTIRELY by the existing NPC1 (visitor) store
+//    state: walks in to the modular synth, stands/plays it, sits with the producer for activities, then
+//    leaves. Path is 190cm vs Jonny's 173cm → ~1.10× Jonny's rendered height. This is NOT Tom (NPC2). ──
+const NPC1_WALK = '/models/shadow/walk.glb'; // Path = Shadow Frequency
+const NPC1_SIT = '/models/shadow/sit.glb';
+const NPC1_IDLE = '/models/shadow/idle.glb'; // canonical base pose (clip0)
+// Jonny renders at ~1.7·1.7 = 2.89 units = 173cm (≈59.9 cm/unit); Path 190cm → ~3.17 units. Shadow
+// Frequency is 1.88 raw, so scale ≈ 3.17/1.88 ≈ 1.69 (measured bounding box, not a blind ratio).
+const NPC1_SCALE = 1.69;
+const NPC1_SILHOUETTE = '#0c0f13'; // near-black, its own value distinct from Jonny and Tom
+
+function Npc1Model() {
+  const walkGlb = useGLTF(NPC1_WALK);
+  const sitGlb = useGLTF(NPC1_SIT);
+  const idleGlb = useGLTF(NPC1_IDLE);
+  const selectObject = useGameStore((s) => s.selectObject);
+  const selected = useGameStore((s) => s.selectedObjectId === 'visitor');
+  const friendActivity = useGameStore((s) => s.friendActivity);
+  const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE, NPC1_SILHOUETTE), []);
+  useEffect(() => () => silhouette.dispose(), [silhouette]);
+  const bones = useRef<PoseBones>({});
+  const scene = useMemo(() => {
+    const root = cloneSkeleton(walkGlb.scene) as THREE.Object3D;
+    root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
+    applyCharacterSilhouette(root, CHARACTER_RENDER_MODE, silhouette);
+    bones.current = grabPoseBones(root);
+    return root;
+  }, [walkGlb.scene, silhouette]);
+  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true)].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb]);
+  const group = useRef<THREE.Group>(null);
+  const drinkGlass = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(clips, scene);
+  const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
+  const sip = useRef({ timer: 3.5, progress: 0 });
+  // Path patches the modular synth (its SFX) while standing at it, not during a seated activity.
+  const atSynth = useGameStore((s) => s.visitorActive && !s.friendActivity && !s.friendMenuOpen);
+  useEffect(() => {
+    if (!atSynth) return;
+    const timer = window.setInterval(() => playModularPatch(), 5200 + Math.random() * 3600);
+    return () => window.clearInterval(timer);
+  }, [atSynth]);
+  useFrame((_, dt) => {
+    const s = useGameStore.getState();
+    if (!s.visitorActive || !group.current) return;
+    const [vx, vz] = toWorld(s.visitorPos.x, s.visitorPos.y);
+    const [px, pz] = toWorld(s.playerPosition.x, s.playerPosition.y);
+    const [sx, sz] = toWorld(323, 277); // modular synth anchor
+    const c = st.current;
+    if (!c.ready) { c.x = vx; c.z = vz; c.ready = true; }
+    const dx = vx - c.x, dz = vz - c.z; c.x = vx; c.z = vz;
+    const moving = Math.hypot(dx, dz) > 0.0015 && !s.friendActivity;
+    // Face travel while walking, the producer during a seated activity, else the synth it's playing.
+    let tx = sx - vx, tz = sz - vz;
+    if (s.friendActivity) { tx = px - vx; tz = pz - vz; } else if (moving) { tx = dx; tz = dz; }
+    const target = Math.atan2(tx, tz) + MODEL_FORWARD;
+    const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing));
+    c.facing += diff * Math.min(1, dt * 6);
+    group.current.position.set(vx, 0, vz);
+    group.current.rotation.y = c.facing;
+    // Clip: seated during an activity (sit pose held on its last frame), walk while moving, else the
+    // idle base pose (standing at the synth).
+    const want = s.friendActivity ? 'sit' : moving ? 'walk' : 'idle';
+    if (want !== c.clip) {
+      if (c.clip === 'sit') actions.sit?.stop(); else if (c.clip) actions[c.clip]?.fadeOut(0.2);
+      if (want === 'sit') { const a = actions.sit; if (a) { a.reset().play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } }
+      else if (want) actions[want]?.reset().fadeIn(0.2).play();
+      c.clip = want;
+    }
+    // Vodka: raise/tip the glass on a loose timer while drinking.
+    if (s.friendActivity === 'vodka' && drinkGlass.current) {
+      if (sip.current.progress > 0) { sip.current.progress += dt; if (sip.current.progress > 1.7) sip.current.progress = 0; }
+      else { sip.current.timer -= dt; if (sip.current.timer <= 0) { sip.current.progress = 0.01; sip.current.timer = 4 + Math.random() * 7; } }
+      const sipping = sip.current.progress > 0.05;
+      drinkGlass.current.position.y += ((sipping ? 1.28 : 0.92) - drinkGlass.current.position.y) * Math.min(1, dt * 8);
+      drinkGlass.current.rotation.x += ((sipping ? -0.5 : 0) - drinkGlass.current.rotation.x) * Math.min(1, dt * 8);
+    }
+  });
+  // Position/rotation live on the outer group; the model is scaled inside it so props/label stay unscaled.
+  return <group ref={group} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}>
+    <group scale={NPC1_SCALE}><primitive object={scene} /></group>
+    {friendActivity === 'vodka' && <group ref={drinkGlass} position={[-0.22, 0.92, -0.32]}><mesh><cylinderGeometry args={[0.09, 0.1, 0.2, 12]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.75} /></mesh></group>}
+    {friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
+    {selected && <Html center position={[0, 2.9, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">FRIEND · ENTER</div></Html>}
+  </group>;
+}
+useGLTF.preload(NPC1_WALK); useGLTF.preload(NPC1_SIT); useGLTF.preload(NPC1_IDLE);
+
+/** Path (NPC1). Mounts only while visiting; the Shadow Frequency GLB streams in behind the procedural
+ *  fallback so it never falls back to the old geometry once loaded. */
+function Visitor() {
+  const active = useGameStore((state) => state.visitorActive);
+  if (!active) return null;
+  return <Suspense fallback={<VisitorProcedural />}><Npc1Model /></Suspense>;
+}
+
 const NPC2_COAT = '#75614f';
 const NPC2_SKIN = '#f1d7c9';
 
@@ -736,7 +973,10 @@ function Npc2Leg({ hipRef, shinRef, x }: { hipRef: RefObject<THREE.Group | null>
  * walking and drifts around the room while idle — and every transition (idle → walking → turning →
  * stopping) eases through the same `gait` weight, so nothing snaps.
  */
-function Npc2() {
+/** NPC2 = Tom — procedural fallback body, shown only while the big Frequency GLB streams in. This is NOT
+ *  Path (Path is NPC1 / the Visitor, using Shadow Frequency). Tom uses the big Frequency GLB + its own
+ *  179cm scale and wander behaviour — never Path's GLB, scale, or synth logic. */
+function Npc2Procedural() {
   const active = useGameStore((state) => state.npc2Active);
   const selectObject = useGameStore((state) => state.selectObject);
   const figure = useRef<THREE.Group>(null);
@@ -829,6 +1069,92 @@ function Npc2() {
   </group>;
 }
 
+// ── Tom (NPC2) = the big Frequency GLB. A separate character from Path (Shadow Frequency). Drives from
+//    NPC2's own wander state (npc2Pos), walks toward targets and idles (bind pose) at each pause. ──
+const NPC2_WALK = '/models/bigfreq/walk.glb'; // Tom = big Frequency
+const NPC2_IDLE = '/models/bigfreq/idle.glb'; // canonical base pose (clip0)
+// Tom 179cm. Jonny 173cm renders at 2.89 units (≈59.9 cm/unit), so 179cm → ~2.99 units; big Frequency is
+// 1.79 raw, so scale ≈ 2.99/1.79 ≈ 1.67 (measured bounding box). Reads ~3.5% taller than Jonny, below Path.
+const NPC2_SCALE = 1.67;
+const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
+
+function Npc2Model() {
+  const walkGlb = useGLTF(NPC2_WALK);
+  const idleGlb = useGLTF(NPC2_IDLE);
+  const selectObject = useGameStore((s) => s.selectObject);
+  const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE, NPC2_SILHOUETTE), []);
+  useEffect(() => () => silhouette.dispose(), [silhouette]);
+  const bones = useRef<PoseBones>({});
+  const scene = useMemo(() => {
+    const root = cloneSkeleton(walkGlb.scene) as THREE.Object3D;
+    root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
+    applyCharacterSilhouette(root, CHARACTER_RENDER_MODE, silhouette);
+    bones.current = grabPoseBones(root);
+    return root;
+  }, [walkGlb.scene, silhouette]);
+  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(idleGlb, 'idle', true)].filter(Boolean) as THREE.AnimationClip[], [walkGlb, idleGlb]);
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(clips, scene);
+  const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
+  useFrame((_, dt) => {
+    const s = useGameStore.getState();
+    if (!s.npc2Active || !group.current) return;
+    const [x, z] = toWorld(s.npc2Pos.x, s.npc2Pos.y);
+    const c = st.current;
+    if (!c.ready) { c.x = x; c.z = z; c.ready = true; }
+    const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
+    const moving = Math.hypot(dx, dz) > 0.0015;
+    if (moving) {
+      const target = Math.atan2(dx, dz) + MODEL_FORWARD;
+      const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing));
+      c.facing += diff * Math.min(1, dt * 6);
+    }
+    group.current.position.set(x, 0, z);
+    group.current.rotation.y = c.facing;
+    const want = moving ? 'walk' : 'idle';
+    if (want !== c.clip) {
+      if (want) actions[want]?.reset().fadeIn(0.2).play();
+      if (c.clip) actions[c.clip]?.fadeOut(0.2);
+      c.clip = want;
+    }
+  });
+  return <group ref={group} onClick={(event) => { event.stopPropagation(); selectObject('npc2'); }}>
+    <group scale={NPC2_SCALE}><primitive object={scene} /></group>
+  </group>;
+}
+useGLTF.preload(NPC2_WALK); useGLTF.preload(NPC2_IDLE);
+
+/** NPC2 = Tom. Mounts only while visiting; the big Frequency GLB streams in behind the procedural
+ *  fallback so it never reverts to the old geometry once loaded. */
+function Npc2() {
+  const active = useGameStore((state) => state.npc2Active);
+  if (!active) return null;
+  return <Suspense fallback={<Npc2Procedural />}><Npc2Model /></Suspense>;
+}
+
+// Soft contact shadows so floor furniture reads as planted, not floating. One shared radial-gradient
+// texture (built lazily on the client) is stamped as a flat plane under each grounded object.
+let _contactShadowTex: THREE.Texture | null = null;
+function contactShadowTexture(): THREE.Texture | null {
+  if (_contactShadowTex) return _contactShadowTex;
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const ctx = c.getContext('2d'); if (!ctx) return null;
+  const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
+  g.addColorStop(0, 'rgba(0,0,0,0.6)'); g.addColorStop(0.55, 'rgba(0,0,0,0.26)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
+  _contactShadowTex = new THREE.CanvasTexture(c);
+  return _contactShadowTex;
+}
+// Approx floor footprint radius (world units) per grounded object; absent ids get no contact shadow.
+const GROUND_SHADOW_RADIUS: Record<string, number> = {
+  acousticGuitar: 0.8, electricGuitar: 0.8, chair: 0.8, friendChair: 0.8,
+  bed: 1.9, instrumentTable: 1.8, miniFridge: 0.85, musicDesk: 2.7,
+};
+
+// How much to enlarge floor furniture so it matches the human-scale GLB characters (~2.9 units tall).
+const FURNITURE_SCALE = 1.4;
+
 function RoomObject({ object }: { object: StudioObject }) {
   const selected = useGameStore((state) => state.selectedObjectId === object.id);
   const setMoveTarget = useGameStore((state) => state.setMoveTarget);
@@ -860,13 +1186,60 @@ function RoomObject({ object }: { object: StudioObject }) {
     else setMoveTarget({ x: object.x + object.width / 2, y: object.y + object.height / 2, selectId: object.id });
   };
   const localZOffset = object.wall ? wallOffset : DESKTOP_IDS.has(object.id) ? DESK_Z_OFFSET : 0;
+  const shadowR = GROUND_SHADOW_RADIUS[object.id];
+  const shadowTex = shadowR !== undefined ? contactShadowTexture() : null;
+  // Floor furniture is scaled up to read at human scale against the (larger) GLB characters. Wall-mounted
+  // pieces stay put (they anchor flush to the wall), and the doors are already sized to the characters.
+  // The desk, instrument table and the gear on them grow only in footprint (X/Z) — their HEIGHT stays so
+  // a seated player can still rest arms on the desk; everything else scales uniformly.
+  const scaled = !object.wall && object.id !== 'entrance';
+  const worktop = object.id === 'musicDesk' || object.id === 'instrumentTable' || DESKTOP_IDS.has(object.id) || TABLE_IDS.has(object.id);
+  const furnScale: [number, number, number] = !scaled ? [1, 1, 1] : worktop ? [FURNITURE_SCALE, 1, FURNITURE_SCALE] : [FURNITURE_SCALE, FURNITURE_SCALE, FURNITURE_SCALE];
+  const shadowMul = scaled ? FURNITURE_SCALE : 1;
   return <group position={[x, 0, z]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
-    <group position={[0, deskLift, localZOffset]}><RoomObjectModel object={object} /></group>
+    {shadowTex && <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowR * shadowMul, shadowR * shadowMul, 1]}>
+      <planeGeometry args={[2, 2]} /><meshBasicMaterial map={shadowTex} transparent depthWrite={false} opacity={0.85} />
+    </mesh>}
+    <group scale={furnScale} position={[0, deskLift, localZOffset]}><RoomObjectModel object={object} /></group>
     {(object.id === 'acousticGuitar' || object.id === 'electricGuitar') && guitarNotesMinutes > 0 && <group position={[0, 1.4, 0]}><Sparkles count={26} scale={[1.3, 1.7, 1.2]} size={2.5} speed={1.2} color="#ffd25a" /><Html center position={[0.35, 1.15, 0]} distanceFactor={8}><span className="text-2xl text-[#ffd25a] drop-shadow-[0_0_8px_#d6a447]">♪</span></Html></group>}
     {selected && <>
       {!object.wall && <mesh position={[0, baseY + 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[ring * 0.9, ring * 1.15, 40]} /><meshBasicMaterial color="#e6c34c" transparent opacity={0.85} /></mesh>}
       <Html center position={[0, object.wall ? 2.25 : baseY + 1.7, object.wall ? wallOffset : 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">{label} · CLICK / ENTER</div></Html>
     </>}
+  </group>;
+}
+
+/** A small foreground floor cluster (coiled cable, used mug, a couple of dropped lyric pages) that
+ *  anchors the empty front-of-room space and adds a trace of daily life. Pure decoration — no collision. */
+function ForegroundClutter() {
+  const tex = contactShadowTexture();
+  return <group position={[-1.5, 0, 2.1]}>
+    {tex && <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.1, 1.1, 1]}><planeGeometry args={[2, 2]} /><meshBasicMaterial map={tex} transparent depthWrite={false} opacity={0.7} /></mesh>}
+    {/* coiled cable */}
+    <mesh position={[0, 0.05, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow><torusGeometry args={[0.28, 0.05, 8, 20]} /><meshStandardMaterial color="#1a1e26" roughness={0.85} /></mesh>
+    <mesh position={[0.1, 0.07, 0.08]} rotation={[Math.PI / 2, 0.4, 0]}><torusGeometry args={[0.19, 0.045, 8, 18]} /><meshStandardMaterial color="#20242e" roughness={0.85} /></mesh>
+    {/* used mug */}
+    <group position={[0.6, 0, -0.18]}>
+      <mesh position={[0, 0.11, 0]} castShadow><cylinderGeometry args={[0.1, 0.088, 0.22, 14]} /><meshStandardMaterial color="#b3ab9d" roughness={0.7} /></mesh>
+      <mesh position={[0.12, 0.13, 0]} rotation={[0, 0, Math.PI / 2]}><torusGeometry args={[0.05, 0.018, 8, 14, Math.PI]} /><meshStandardMaterial color="#b3ab9d" roughness={0.7} /></mesh>
+      <mesh position={[0, 0.21, 0]}><cylinderGeometry args={[0.084, 0.084, 0.02, 12]} /><meshStandardMaterial color="#3a2c22" roughness={0.6} /></mesh>
+    </group>
+    {/* dropped lyric pages */}
+    <mesh position={[-0.5, 0.012, 0.32]} rotation={[-Math.PI / 2, 0, 0.35]} castShadow><planeGeometry args={[0.42, 0.56]} /><meshStandardMaterial color="#e7e1d5" roughness={0.95} side={THREE.DoubleSide} /></mesh>
+    <mesh position={[-0.33, 0.014, 0.12]} rotation={[-Math.PI / 2, 0, -0.5]}><planeGeometry args={[0.4, 0.54]} /><meshStandardMaterial color="#d8d1c2" roughness={0.95} side={THREE.DoubleSide} /></mesh>
+  </group>;
+}
+
+/** Desk lamp: a warm amber practical + its little articulated prop, at the desk's back-left corner. It
+ *  gives the CREATION zone its own warm pool of light against the cool monitors (lighting hierarchy). */
+function DeskLamp() {
+  return <group position={[-2.05, 1.39, -4.0]}>
+    <mesh position={[0, 0.03, 0]} castShadow><cylinderGeometry args={[0.12, 0.14, 0.06, 16]} /><meshStandardMaterial color="#2a2f38" metalness={0.4} roughness={0.5} /></mesh>
+    <mesh position={[0, 0.36, 0]} rotation={[0, 0, 0.16]} castShadow><cylinderGeometry args={[0.022, 0.022, 0.68, 10]} /><meshStandardMaterial color="#3a3f46" metalness={0.5} /></mesh>
+    <mesh position={[0.2, 0.66, 0.12]} rotation={[0.6, 0, 0.95]} castShadow><cylinderGeometry args={[0.022, 0.022, 0.44, 10]} /><meshStandardMaterial color="#3a3f46" metalness={0.5} /></mesh>
+    <mesh position={[0.38, 0.74, 0.28]} rotation={[1.05, 0, 0.5]} castShadow><coneGeometry args={[0.17, 0.22, 16, 1, true]} /><meshStandardMaterial color="#5a4632" metalness={0.3} roughness={0.5} side={THREE.DoubleSide} /></mesh>
+    <mesh position={[0.4, 0.68, 0.32]}><sphereGeometry args={[0.06, 10, 10]} /><meshStandardMaterial color="#ffd9a0" emissive="#ffb45a" emissiveIntensity={2.2} toneMapped={false} /></mesh>
+    <pointLight position={[0.5, 0.6, 0.5]} color="#ffb257" intensity={4.5} distance={5.2} />
   </group>;
 }
 
@@ -903,6 +1276,11 @@ function Room() {
     <hemisphereLight args={['#3a2530', '#0c1018', 0.4]} />
     <pointLight position={[4, 3, 4]} intensity={chapterCelebration ? 8 : 3.4} color={chapterCelebration ? '#ff78b2' : '#c0394a'} distance={12} />
     <pointLight position={[-5, 2.4, 3]} intensity={2.6} color="#a8384a" distance={11} />
+    {/* Warm bedside practical so the REST zone (bed, right side) stops reading as dead space. */}
+    <pointLight position={[6.2, 1.2, -1.5]} intensity={3.4} color="#ff9a4a" distance={4.8} />
+    {/* Soft cool top-fill over the central play area — lifts the dark character off the floor without
+        flooding the room (kept local via a short distance and low intensity). */}
+    <pointLight position={[0, 4.0, 1.4]} intensity={1.6} color="#8fa2c8" distance={7} />
     {/* The room shell scales with the layout so the enlarged studio keeps its proportions and mood. */}
     <mesh receiveShadow position={[0, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[14 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
     {/* Walls are translucent so they never block the view when the camera orbits (depthWrite off = no occlusion). */}
@@ -912,7 +1290,7 @@ function Room() {
     <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[0, 6.15, 0]}><boxGeometry args={[14 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
-    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<Player /><Visitor /><Npc2 /><CelebrationFX active={chapterCelebration} /><CameraRig />
+    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><DeskLamp /><Player /><Visitor /><Npc2 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;
 }
 
@@ -1016,9 +1394,9 @@ function ElevatorCar() {
       </mesh>
     )))}
     {/* Brushed-metal side and rear walls with a vintage wood dado rail. */}
-    <mesh position={[-2.26, 1.7, 0]}><boxGeometry args={[0.12, 3.4, 5.2]} /><meshStandardMaterial color="#9c9285" metalness={0.28} roughness={0.5} /></mesh>
-    <mesh position={[2.26, 1.7, 0]}><boxGeometry args={[0.12, 3.4, 5.2]} /><meshStandardMaterial color="#9c9285" metalness={0.28} roughness={0.5} /></mesh>
-    <mesh position={[0, 1.7, 2.6]}><boxGeometry args={[4.4, 3.4, 0.12]} /><meshStandardMaterial color="#8e8577" metalness={0.28} roughness={0.5} /></mesh>
+    <mesh position={[-2.26, 1.9, 0]}><boxGeometry args={[0.12, 3.8, 5.2]} /><meshStandardMaterial color="#9c9285" metalness={0.28} roughness={0.5} /></mesh>
+    <mesh position={[2.26, 1.9, 0]}><boxGeometry args={[0.12, 3.8, 5.2]} /><meshStandardMaterial color="#9c9285" metalness={0.28} roughness={0.5} /></mesh>
+    <mesh position={[0, 1.9, 2.6]}><boxGeometry args={[4.4, 3.8, 0.12]} /><meshStandardMaterial color="#8e8577" metalness={0.28} roughness={0.5} /></mesh>
     {[-2.18, 2.18].map((x) => <mesh key={x} position={[x, 1.0, 0]}><boxGeometry args={[0.07, 0.14, 5.1]} /><meshStandardMaterial color="#6b4b2c" roughness={0.6} /></mesh>)}
     <mesh position={[0, 1.0, 2.52]}><boxGeometry args={[4.3, 0.14, 0.07]} /><meshStandardMaterial color="#6b4b2c" roughness={0.6} /></mesh>
     {/* Brass handrail along the rear wall. */}
@@ -1027,12 +1405,12 @@ function ElevatorCar() {
     <mesh position={[0, 1.95, 2.5]}><boxGeometry args={[2.7, 2.2, 0.06]} /><meshStandardMaterial color="#b28a44" metalness={0.3} roughness={0.4} /></mesh>
     <mesh position={[0, 1.95, 2.45]}><planeGeometry args={[2.44, 1.94]} /><meshStandardMaterial color="#d4dfe4" metalness={0.2} roughness={0.08} emissive="#93a8b2" emissiveIntensity={0.42} /></mesh>
     {/* Ceiling with a glowing light panel. */}
-    <mesh position={[0, 3.42, 0]}><boxGeometry args={[4.4, 0.12, 5.2]} /><meshStandardMaterial color="#4a3d2e" /></mesh>
-    <mesh position={[0, 3.3, 0]}><boxGeometry args={[2.0, 0.07, 2.6]} /><meshStandardMaterial color="#ffd9a8" emissive="#ffb066" emissiveIntensity={1.6} toneMapped={false} /></mesh>
+    <mesh position={[0, 3.82, 0]}><boxGeometry args={[4.4, 0.12, 5.2]} /><meshStandardMaterial color="#4a3d2e" /></mesh>
+    <mesh position={[0, 3.7, 0]}><boxGeometry args={[2.0, 0.07, 2.6]} /><meshStandardMaterial color="#ffd9a8" emissive="#ffb066" emissiveIntensity={1.6} toneMapped={false} /></mesh>
     {/* Sliding doors on the front face, with a lintel above them. */}
-    <mesh position={[0, 3.16, -2.62]}><boxGeometry args={[4.5, 0.42, 0.14]} /><meshStandardMaterial color="#8a8175" metalness={0.25} roughness={0.55} /></mesh>
-    <group ref={doorL} position={[-2.32, 1.55, -2.62]}><mesh><boxGeometry args={[2.24, 3.1, 0.1]} /><meshStandardMaterial color="#b0a596" metalness={0.25} roughness={0.42} /></mesh></group>
-    <group ref={doorR} position={[2.32, 1.55, -2.62]}><mesh><boxGeometry args={[2.24, 3.1, 0.1]} /><meshStandardMaterial color="#b0a596" metalness={0.25} roughness={0.42} /></mesh></group>
+    <mesh position={[0, 3.56, -2.62]}><boxGeometry args={[4.5, 0.42, 0.14]} /><meshStandardMaterial color="#8a8175" metalness={0.25} roughness={0.55} /></mesh>
+    <group ref={doorL} position={[-2.32, 1.7, -2.62]}><mesh><boxGeometry args={[2.24, 3.4, 0.1]} /><meshStandardMaterial color="#b0a596" metalness={0.25} roughness={0.42} /></mesh></group>
+    <group ref={doorR} position={[2.32, 1.7, -2.62]}><mesh><boxGeometry args={[2.24, 3.4, 0.1]} /><meshStandardMaterial color="#b0a596" metalness={0.25} roughness={0.42} /></mesh></group>
     {/* Button panel on the side wall by the doors. */}
     <group position={[2.12, 1.5, -1.7]} rotation={[0, -Math.PI / 2, 0]}><ElevatorPanel /></group>
     <group position={[0, 0, -1.5]}><Player crystal={false} /></group>
@@ -1060,18 +1438,18 @@ function Hallway() {
     <mesh position={[0, 0.01, 0.5]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[2.6, 10]} /><meshStandardMaterial color="#6d4740" roughness={0.95} /></mesh>
     {/* Studio door on the left: distinct from the elevator, and always returns to the same room. */}
     <group position={[-2.4, 0, -4.25]}>
-      <mesh position={[0, 1.4, 0]} castShadow onClick={(event) => { event.stopPropagation(); returnToStudio(); }}><boxGeometry args={[1.5, 2.8, 0.18]} /><meshStandardMaterial color="#b73545" /></mesh>
-      <mesh position={[0.5, 1.32, 0.14]}><sphereGeometry args={[0.06, 10, 10]} /><meshStandardMaterial color="#d6a447" metalness={0.6} /></mesh>
-      <Html center position={[0, 3.0, 0]} distanceFactor={9}>
+      <mesh position={[0, 1.8, 0]} castShadow onClick={(event) => { event.stopPropagation(); returnToStudio(); }}><boxGeometry args={[1.6, 3.6, 0.18]} /><meshStandardMaterial color="#b73545" /></mesh>
+      <mesh position={[0.55, 1.5, 0.14]}><sphereGeometry args={[0.06, 10, 10]} /><meshStandardMaterial color="#d6a447" metalness={0.6} /></mesh>
+      <Html center position={[0, 3.8, 0]} distanceFactor={9}>
         <button type="button" onClick={returnToStudio} className="pointer-events-auto rounded border border-paper/40 bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap hover:bg-ember/50">STUDIO · ENTER</button>
       </Html>
     </group>
     {/* Elevator on the right: down to the ground-floor lobby. */}
     <group position={[1.45, 0, -4.25]}>
-      <mesh position={[0, 1.6, 0]} castShadow><boxGeometry args={[2.8, 3.2, 0.2]} /><meshStandardMaterial color="#20262f" metalness={0.35} roughness={0.5} /></mesh>
-      <mesh position={[-0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
-      <mesh position={[0.72, 1.55, 0.12]}><boxGeometry args={[1.2, 2.7, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
-      <group position={[1.72, 1.35, 0.15]}><ElevatorPanel onPress={enterElevator} label="ELEVATOR" /></group>
+      <mesh position={[0, 1.85, 0]} castShadow><boxGeometry args={[2.9, 3.7, 0.2]} /><meshStandardMaterial color="#20262f" metalness={0.35} roughness={0.5} /></mesh>
+      <mesh position={[-0.74, 1.68, 0.12]}><boxGeometry args={[1.26, 3.35, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
+      <mesh position={[0.74, 1.68, 0.12]}><boxGeometry args={[1.26, 3.35, 0.04]} /><meshStandardMaterial color="#8a939e" metalness={0.3} roughness={0.45} /></mesh>
+      <group position={[1.78, 1.5, 0.15]}><ElevatorPanel onPress={enterElevator} label="ELEVATOR" /></group>
     </group>
     <Player /><PlaceRig from={HALLWAY_CAM} target={HALLWAY_TARGET} min={7} max={16} />
   </>;
@@ -1151,12 +1529,12 @@ function Lobby() {
     </group>
     {/* The elevator: the one way back up to the studio floor. */}
     <group position={[1.6, 0, -5.0]}>
-      <mesh position={[0, 1.75, 0]} castShadow><boxGeometry args={[3.0, 3.5, 0.24]} /><meshStandardMaterial color="#4a3a28" roughness={0.6} /></mesh>
-      <mesh position={[-0.76, 1.68, 0.14]}><boxGeometry args={[1.28, 2.9, 0.05]} /><meshStandardMaterial color="#9a8a6a" metalness={0.32} roughness={0.45} /></mesh>
-      <mesh position={[0.76, 1.68, 0.14]}><boxGeometry args={[1.28, 2.9, 0.05]} /><meshStandardMaterial color="#9a8a6a" metalness={0.32} roughness={0.45} /></mesh>
+      <mesh position={[0, 1.95, 0]} castShadow><boxGeometry args={[3.0, 3.9, 0.24]} /><meshStandardMaterial color="#4a3a28" roughness={0.6} /></mesh>
+      <mesh position={[-0.76, 1.7, 0.14]}><boxGeometry args={[1.3, 3.35, 0.05]} /><meshStandardMaterial color="#9a8a6a" metalness={0.32} roughness={0.45} /></mesh>
+      <mesh position={[0.76, 1.7, 0.14]}><boxGeometry args={[1.3, 3.35, 0.05]} /><meshStandardMaterial color="#9a8a6a" metalness={0.32} roughness={0.45} /></mesh>
       {/* Floor-indicator dial above the doors. */}
-      <mesh position={[0, 3.34, 0.16]}><boxGeometry args={[0.9, 0.34, 0.06]} /><meshStandardMaterial color="#2b2118" /></mesh>
-      <mesh position={[0, 3.34, 0.2]}><planeGeometry args={[0.74, 0.2]} /><meshStandardMaterial color="#ffb457" emissive="#ff8c22" emissiveIntensity={1.3} toneMapped={false} /></mesh>
+      <mesh position={[0, 3.66, 0.16]}><boxGeometry args={[0.9, 0.34, 0.06]} /><meshStandardMaterial color="#2b2118" /></mesh>
+      <mesh position={[0, 3.66, 0.2]}><planeGeometry args={[0.74, 0.2]} /><meshStandardMaterial color="#ffb457" emissive="#ff8c22" emissiveIntensity={1.3} toneMapped={false} /></mesh>
       <group position={[1.85, 1.4, 0.16]}><ElevatorPanel onPress={enterElevator} label="ELEVATOR" /></group>
     </group>
     <Player /><PlaceRig from={LOBBY_CAM} target={LOBBY_TARGET} min={8} max={19} />

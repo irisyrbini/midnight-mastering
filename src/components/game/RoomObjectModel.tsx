@@ -82,11 +82,13 @@ function Guitar({ body, solid }: { body: string; solid?: boolean }) {
   </group>;
 }
 
+// Doors are sized to clear the characters (tallest is Path at ~3.2 units): a ~3.35 opening in a ~3.6
+// frame, so everyone walks through with headroom rather than towering over the doorway.
 function Door({ color }: { color: string }) {
   return <group>
-    <mesh position={[0, 1.2, 0]} castShadow><boxGeometry args={[1.25, 2.4, 0.14]} /><meshStandardMaterial color="#2a2f38" /></mesh>
-    <mesh position={[0, 1.2, 0.06]}><boxGeometry args={[1.0, 2.15, 0.08]} /><meshStandardMaterial color={color} /></mesh>
-    <mesh position={[0.38, 1.12, 0.12]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} /></mesh>
+    <mesh position={[0, 1.8, 0]} castShadow><boxGeometry args={[1.4, 3.6, 0.14]} /><meshStandardMaterial color="#2a2f38" /></mesh>
+    <mesh position={[0, 1.68, 0.06]}><boxGeometry args={[1.15, 3.35, 0.08]} /><meshStandardMaterial color={color} /></mesh>
+    <mesh position={[0.44, 1.5, 0.12]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} /></mesh>
   </group>;
 }
 
@@ -171,11 +173,11 @@ function EntranceDoor() {
     }
   });
   return <group>
-    <mesh position={[0, 1.2, 0]} castShadow><boxGeometry args={[1.25, 2.4, 0.14]} /><meshStandardMaterial color="#2a2f38" /></mesh>
-    <mesh position={[0, 1.2, -0.05]}><planeGeometry args={[1.02, 2.16]} /><meshStandardMaterial color="#05070c" /></mesh>
-    <group ref={leaf} position={[-0.52, 1.2, 0.06]}>
-      <mesh position={[0.5, 0, 0]} castShadow><boxGeometry args={[1.0, 2.15, 0.08]} /><meshStandardMaterial ref={leafMat} color="#b73545" transparent opacity={1} /></mesh>
-      <mesh position={[0.9, -0.08, 0.06]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} transparent /></mesh>
+    <mesh position={[0, 1.8, 0]} castShadow><boxGeometry args={[1.4, 3.6, 0.14]} /><meshStandardMaterial color="#2a2f38" /></mesh>
+    <mesh position={[0, 1.68, -0.05]}><planeGeometry args={[1.15, 3.3]} /><meshStandardMaterial color="#05070c" /></mesh>
+    <group ref={leaf} position={[-0.58, 1.68, 0.06]}>
+      <mesh position={[0.56, 0, 0]} castShadow><boxGeometry args={[1.15, 3.35, 0.08]} /><meshStandardMaterial ref={leafMat} color="#b73545" transparent opacity={1} /></mesh>
+      <mesh position={[1.0, -0.55, 0.06]}><sphereGeometry args={[0.06, 12, 12]} /><meshStandardMaterial color="#d6a447" metalness={0.6} transparent /></mesh>
     </group>
   </group>;
 }
@@ -245,10 +247,11 @@ function WindowUnit({ width = 3.8, celestial = true }: { width?: number; celesti
     <mesh position={[0, 0, -0.05]}><planeGeometry args={[width - 0.3, 2.25]} /><meshStandardMaterial color={sky} emissive={sky} emissiveIntensity={(open ? 0.9 : 0.45) * (wet ? 0.7 : 1)} toneMapped={false} /></mesh>
     {/* Everything below is inside the opening (z ≤ 0), so nothing protrudes into the room. */}
     <group scale={[width / 3.8, 1, 1]}>
-      {/* The single sun: only the main window draws it, and it stays recessed behind the glass. */}
-      {celestial && daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, -0.03]}><sphereGeometry args={[0.16 + daylight * 0.1, 16, 12]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} /></mesh>}
-      {/* The moon takes the same window at night, opposite the sun. */}
-      {celestial && daylight < 0.35 && <mesh position={[0.95, 0.6, -0.03]}><sphereGeometry args={[0.15, 16, 12]} /><meshStandardMaterial color="#e8ecf5" emissive="#cfd8ec" emissiveIntensity={1.5} toneMapped={false} /></mesh>}
+      {/* The single sun: a FLAT disc (2D) so it can never poke through the glass — it sits recessed on
+          the sky plane and faces the room (+z), only the main window draws it. */}
+      {celestial && daylight > 0.02 && <mesh position={[-1.0 + sunProgress * 2.0, -0.85 + sunProgress * 1.35, -0.03]}><circleGeometry args={[0.16 + daylight * 0.1, 28]} /><meshStandardMaterial color={golden > 0.2 ? '#ffb05a' : '#ffd98a'} emissive={golden > 0.2 ? '#ff8c3a' : '#ffb84d'} emissiveIntensity={(3 + daylight * 2) * (wet ? 0.45 : 1)} toneMapped={false} side={THREE.DoubleSide} /></mesh>}
+      {/* The moon takes the same window at night, opposite the sun — also a flat disc. */}
+      {celestial && daylight < 0.35 && <mesh position={[0.95, 0.6, -0.03]}><circleGeometry args={[0.15, 28]} /><meshStandardMaterial color="#e8ecf5" emissive="#cfd8ec" emissiveIntensity={1.5} toneMapped={false} side={THREE.DoubleSide} /></mesh>}
       {daylight < 0.42 && <group position={[0, 0.2, -0.02]}><Sparkles count={46} scale={[3.2, 1.9, 0.2]} size={2.6} speed={0.35} color="#dfe8ff" /></group>}
       {daylight < 0.42 && [[-0.9, 0.42], [0.7, 0.55], [-0.3, -0.15], [1.0, -0.05], [0.25, 0.6], [-1.1, -0.4], [0.5, 0.2]].map(([sx, sy], i) => <mesh key={`s${i}`} position={[sx, sy, -0.02]}><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={3} toneMapped={false} /></mesh>)}
       {/* Drifting clouds, faint by day and lit by the city glow at night. */}
@@ -315,9 +318,9 @@ function Bed() {
   </group>;
 }
 
-/** Wall poster with two colour panels. */
-function Poster({ top, bottom }: { top: string; bottom: string }) {
-  return <group position={[0, 2.05, 0]}>
+/** Wall poster with two colour panels. `drop` hangs it lower to break an even row line. */
+function Poster({ top, bottom, drop = 0 }: { top: string; bottom: string; drop?: number }) {
+  return <group position={[0, 2.05 - drop, 0]}>
     <mesh><boxGeometry args={[1.1, 1.4, 0.05]} /><meshStandardMaterial color="#241b2b" /></mesh>
     <mesh position={[0, 0.24, 0.03]}><planeGeometry args={[0.9, 0.72]} /><meshStandardMaterial color={top} emissive={top} emissiveIntensity={0.14} /></mesh>
     <mesh position={[0, -0.42, 0.03]}><planeGeometry args={[0.9, 0.42]} /><meshStandardMaterial color={bottom} /></mesh>
@@ -450,7 +453,7 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'window2': return <WindowUnit width={2.6} celestial={false} />;
 
     case 'posters': return <Poster top="#b8708a" bottom="#4f6f8c" />;
-    case 'posters2': return <Poster top="#5a86a0" bottom="#2f4a5a" />;
+    case 'posters2': return <Poster top="#5a86a0" bottom="#2f4a5a" drop={0.5} />;
     case 'posters3': return <Poster top="#c0993f" bottom="#5c4a2e" />;
     case 'posters4': return <Poster top="#8a6fb0" bottom="#453560" />;
 

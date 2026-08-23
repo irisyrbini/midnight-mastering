@@ -115,7 +115,7 @@ export const ELEVATOR_DOOR_MS = 1000;
 export const ELEVATOR_DING_MS = 1000; // before arrival
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
-export const GAME_MINUTES_PER_REAL_SECOND = 2.0;
+export const GAME_MINUTES_PER_REAL_SECOND = 1.3; // gentler pace: a day passes in ~9 min real, needs drain slower
 const decayPerGameMinute: ProducerNeeds = { hunger: 0.12, energy: 0.12, hygiene: 0.06, social: 0.08, creativity: 0.09, love: 0.05 };
 
 /** Point-and-click navigation target. `selectId` keeps a clicked object selected while walking to it. */

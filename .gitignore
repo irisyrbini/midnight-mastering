@@ -31,3 +31,21 @@ yarn-error.log*
 # editor
 .idea
 .vscode
+# Local model library is large; only the game-referenced generic .glb files are committed (the rest —
+# raw Meshy exports, unused takes, alternate character sets — stay local until wired in).
+public/models/*
+!public/models/idle.glb
+!public/models/walking.glb
+!public/models/running.glb
+!public/models/sit.glb
+!public/models/lie.glb
+!public/models/scroll.glb
+!public/models/shadow
+!public/models/bigfreq
+public/models/shadow/*
+public/models/bigfreq/*
+!public/models/shadow/walk.glb
+!public/models/shadow/sit.glb
+!public/models/shadow/idle.glb
+!public/models/bigfreq/walk.glb
+!public/models/bigfreq/idle.glb
