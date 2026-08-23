@@ -46,6 +46,9 @@ export function GameHud() {
   const albumProgress = useGameStore((state) => state.albumProgress);
   const albumCompleted = useGameStore((state) => state.albumCompleted);
   const weather = useGameStore((state) => state.weather);
+  const rainMuted = useGameStore((state) => state.rainMuted);
+  const toggleRainMute = useGameStore((state) => state.toggleRainMute);
+  const isWet = weather === 'rain' || weather === 'hail';
   const emotion = emotionalScore(emotionalGraph);
   const crystalHex = crystal === 'red' ? '#d84f59' : crystal === 'yellow' ? '#e6c34c' : '#62cf86';
   return <>
@@ -67,6 +70,7 @@ export function GameHud() {
     </aside>
     <aside className="pointer-events-none absolute right-5 top-5 rounded-xl border border-paper/45 bg-night/85 px-5 py-4 text-right shadow-2xl backdrop-blur-sm">
       <p className="text-xs tracking-[0.18em] text-paper/60">DAY {clock.day} · {weather.toUpperCase()}</p><p className="mt-1 font-mono text-xl text-paper">{formatTime(clock.minuteOfDay)}</p>
+      {isWet && <button onClick={toggleRainMute} className="pointer-events-auto mt-2 rounded-md border border-paper/30 px-2 py-1 text-xs text-paper/75 hover:bg-paper/10">{rainMuted ? '🔇 rain muted' : '🔊 mute rain'}</button>}
     </aside>
     <aside className="pointer-events-none absolute bottom-5 right-5 w-60 rounded-xl border border-paper/45 bg-night/85 p-4 shadow-2xl backdrop-blur-sm">
       <div className="flex items-center justify-between"><p className="text-xs tracking-[0.14em] text-paper/60">EMOTIONAL CRYSTAL</p><span className="h-3 w-3 rounded-full" style={{ backgroundColor: crystalHex }} /></div>

@@ -83,10 +83,10 @@ function EmotionalCrystal({ y }: { y: number }) {
   return <group ref={float} position={[0, y, 0]}>
     <group ref={spin}>
       {[0, Math.PI / 3, -Math.PI / 3].map((r) => <mesh key={r} rotation={[0, 0, r]} castShadow>
-        <boxGeometry args={[0.08, 0.5, 0.08]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.5} toneMapped={false} />
+        <boxGeometry args={[0.05, 0.32, 0.05]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.5} toneMapped={false} />
       </mesh>)}
     </group>
-    <pointLight color={color} intensity={2.6} distance={3.4} /><Sparkles count={10} scale={0.7} size={1.3} color={color} />
+    <pointLight color={color} intensity={2.2} distance={3} /><Sparkles count={8} scale={0.5} size={1.1} color={color} />
   </group>;
 }
 
@@ -623,7 +623,7 @@ const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tun
 // Per-pose seat height: the GLB `sit` clip and the FBX `tune`/`drink` clips lower the pelvis to DIFFERENT
 // heights, so each gets its own root Y to land the butt on the chair seat (~0.84 world) with feet ~on the
 // floor. Tuned by eye against the current chair + character scale.
-const SEAT_ROOT_Y = 0.06; // GLB sit clip — lands the butt on the chair seat (tuned by eye)
+const SEAT_ROOT_Y = 0.24; // GLB sit clip — raised to meet the enlarged (CHAIR_SCALE) seat
 const SEAT_ROOT_Z = -0.1; // settle back into the chair
 const LIE_ROOT_Y = 0.72; // rest on the mattress surface
 const LIE_ROOT_Z = 0.2; // slide toward the pillow / headboard end
@@ -732,22 +732,33 @@ function grabPoseBones(root: THREE.Object3D): PoseBones {
   return { ulL: g('LeftUpLeg'), ulR: g('RightUpLeg'), lL: g('LeftLeg'), lR: g('RightLeg'), spine: g('Spine'), aL: g('LeftArm'), aR: g('RightArm'), fL: g('LeftForeArm'), fR: g('RightForeArm') };
 }
 
-/** A small ukulele that parents to the player's right-hand bone during the pick-up-and-play interaction,
- *  so it follows the strum pose. Authored in bone-local space (~metres); tune the transform against the rig. */
-function createHandUkulele(): THREE.Group {
-  const g = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color: '#c68a4e', roughness: 0.5 });
-  const dark = new THREE.MeshStandardMaterial({ color: '#2a1c12' });
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), wood); body.scale.set(1, 1.25, 0.42); g.add(body);
-  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.035, 14), dark); hole.position.set(0, 0.02, 0.052); g.add(hole);
-  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.028), new THREE.MeshStandardMaterial({ color: '#7a5a41', roughness: 0.6 })); neck.position.set(0, 0.27, 0); g.add(neck);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.02), dark); head.position.set(0, 0.46, 0.005); g.add(head);
-  g.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.castShadow = true; });
-  g.rotation.set(0.25, 0.1, -1.05); // lie across the body, neck out to the side
-  g.position.set(0.06, 0.02, 0.06);
-  g.scale.setScalar(1.1);
-  return g;
+/** Ukulele held across the chest while performing (an overlay, so it's always visible — reliably shown
+ *  in front of the standing strum pose rather than parented to a hand bone). Faces the camera-ish. */
+function HeldUkulele() {
+  return <group position={[0.12, 1.6, 0.34]} rotation={[0.15, 0.2, -0.5]}>
+    <mesh position={[0, 0, 0]} scale={[1, 1.25, 0.42]} castShadow><sphereGeometry args={[0.2, 14, 10]} /><meshStandardMaterial color="#c68a4e" roughness={0.5} /></mesh>
+    <mesh position={[0, 0.02, 0.09]}><circleGeometry args={[0.06, 14]} /><meshStandardMaterial color="#2a1c12" /></mesh>
+    <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[0.06, 0.56, 0.045]} /><meshStandardMaterial color="#7a5a41" roughness={0.6} /></mesh>
+    <mesh position={[0, 0.82, 0.005]} rotation={[0.16, 0, 0]}><boxGeometry args={[0.09, 0.14, 0.035]} /><meshStandardMaterial color="#2a1c12" /></mesh>
+  </group>;
 }
+
+/** A short cup of vodka held near the seated producer while they drink. */
+function HeldCup() {
+  return <group position={[0.16, 1.02, -0.34]}>
+    <mesh castShadow><cylinderGeometry args={[0.09, 0.1, 0.2, 14]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.72} roughness={0.15} /></mesh>
+    <mesh position={[0, -0.03, 0]}><cylinderGeometry args={[0.085, 0.085, 0.12, 14]} /><meshStandardMaterial color="#cfd8e6" transparent opacity={0.6} /></mesh>
+  </group>;
+}
+
+/** A lit cigarette held near the hand while smoking. */
+function HeldCigarette() {
+  return <group position={[0.22, 1.28, -0.24]} rotation={[0, 0, 0.2]}>
+    <mesh rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.016, 0.016, 0.24, 8]} /><meshStandardMaterial color="#efe9dd" /></mesh>
+    <mesh position={[0.13, 0, 0]}><sphereGeometry args={[0.022, 8, 8]} /><meshStandardMaterial color="#ff7a3a" emissive="#ff5a1a" emissiveIntensity={2} toneMapped={false} /></mesh>
+  </group>;
+}
+
 function PlayerModel() {
   const idle = useGLTF(GLB_IDLE);
   const walk = useGLTF(GLB_WALK);
@@ -760,8 +771,6 @@ function PlayerModel() {
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
   useEffect(() => () => silhouette.dispose(), [silhouette]);
-  const playingUkulele = useGameStore((s) => s.playingUkulele);
-  const handUke = useMemo(() => createHandUkulele(), []);
   // Clone the mesh from the WALK file (a clean Armature skeleton) so every clip — walk, run, and the
   // idle base pose lifted from idle.glb — binds by bone name. Shadow-enable + apply the silhouette.
   // Bone handles are for procedural seated/lying posing (the export has no sit/lie clip).
@@ -773,15 +782,6 @@ function PlayerModel() {
     bones.current = grabPoseBones(root);
     return root;
   }, [walk.scene, silhouette]);
-  // Parent the ukulele to the right-hand bone only while the pick-up-and-play interaction runs, so it
-  // rides the strum pose — and there's never a duplicate left on the floor (the bedside one hides).
-  useEffect(() => {
-    if (!playingUkulele) return;
-    const hand = scene.getObjectByName('RightHand') ?? scene.getObjectByName('LeftHand');
-    if (!hand) return;
-    hand.add(handUke);
-    return () => { hand.remove(handUke); };
-  }, [playingUkulele, scene, handUke]);
   const clips = useMemo(() => [
     pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'),
     // sit/lie (GLB) bake a step-in walk into the root — anchor them in place so the body stays on the chair/bed.
@@ -858,6 +858,9 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   const lyingDown = useGameStore((state) => state.lyingDown);
   const scrolling = useGameStore((state) => state.scrolling);
   const friendActivity = useGameStore((state) => state.friendActivity);
+  const playingUkulele = useGameStore((state) => state.playingUkulele);
+  const lastInteractionId = useGameStore((state) => state.lastInteraction?.id);
+  const smokingMinutes = useGameStore((state) => state.smokingMinutes);
   const [x, z] = toWorld(position.x, position.y);
   // Overlay anchor heights track the pose: low while lying, mid while seated, high while standing.
   const crystalY = lyingDown ? 1.5 : seated ? 2.5 : 3.25;
@@ -868,9 +871,12 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
     <Suspense fallback={null}><PlayerModel /></Suspense>
     {/* Smoking rides the body in every state (was lost when the GLB replaced the procedural walker). */}
     <SmokingEffect hipY={smokeHipY} />
+    {/* Held props — reliably visible in the hand (overlays, not bone-parented). */}
+    {playingUkulele && <HeldUkulele />}
+    {seated && lastInteractionId === 'vodka' && <HeldCup />}
+    {smokingMinutes > 0 && <HeldCigarette />}
     {/* Seated collaboration props. */}
     {seated && friendActivity === 'tune' && <TunePerformance />}
-    {seated && friendActivity === 'vodka' && <mesh position={[0.24, 1.05, -0.42]}><cylinderGeometry args={[0.08, 0.1, 0.52, 12]} /><meshStandardMaterial color="#52758e" transparent opacity={0.8} /></mesh>}
     {seated && friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
     {/* Doom-scrolling: a glowing phone held up over the lying body. */}
     {lyingDown && scrolling && <group position={[0, 1.28, 0.5]}>
@@ -1277,6 +1283,7 @@ const GROUND_SHADOW_RADIUS: Record<string, number> = {
 
 // How much to enlarge floor furniture so it matches the human-scale GLB characters (~2.9 units tall).
 const FURNITURE_SCALE = 1.4;
+const CHAIR_SCALE = 1.7; // chairs sized to the (larger) characters so the seat meets the body
 
 function RoomObject({ object }: { object: StudioObject }) {
   const selected = useGameStore((state) => state.selectedObjectId === object.id);
@@ -1315,9 +1322,12 @@ function RoomObject({ object }: { object: StudioObject }) {
   // pieces stay put (they anchor flush to the wall), and the doors are already sized to the characters.
   // The desk, instrument table and the gear on them grow only in footprint (X/Z) — their HEIGHT stays so
   // a seated player can still rest arms on the desk; everything else scales uniformly.
-  const scaled = !object.wall && object.id !== 'entrance' && object.id !== 'ukulele'; // ukulele keeps its authored size
+  const authoredSize = object.id === 'entrance' || object.id === 'ukulele' || object.id === 'beanbag' || object.id === 'sofa';
+  const scaled = !object.wall && !authoredSize; // these are modelled at final size
   const worktop = object.id === 'musicDesk' || object.id === 'instrumentTable' || DESKTOP_IDS.has(object.id) || TABLE_IDS.has(object.id);
-  const furnScale: [number, number, number] = !scaled ? [1, 1, 1] : worktop ? [FURNITURE_SCALE, 1, FURNITURE_SCALE] : [FURNITURE_SCALE, FURNITURE_SCALE, FURNITURE_SCALE];
+  const isChair = object.id === 'chair' || object.id === 'friendChair';
+  const uniform = isChair ? CHAIR_SCALE : FURNITURE_SCALE; // chairs read a touch bigger, sized to the characters
+  const furnScale: [number, number, number] = !scaled ? [1, 1, 1] : worktop ? [FURNITURE_SCALE, 1, FURNITURE_SCALE] : [uniform, uniform, uniform];
   const shadowMul = scaled ? FURNITURE_SCALE : 1;
   return <group position={[x, 0, z]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
     {shadowTex && <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowR * shadowMul, shadowR * shadowMul, 1]}>

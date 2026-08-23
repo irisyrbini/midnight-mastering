@@ -18,7 +18,7 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'posters3', x: 800, y: 80, width: 100, height: 78, color: '#5c4a2e', wall: 'back' },
   { id: 'posters4', x: 312, y: 84, width: 100, height: 78, color: '#4a3550', wall: 'back' },
   { id: 'ledLights', x: 680, y: 62, width: 360, height: 22, color: '#b73545', shape: 'light', wall: 'back' },
-  { id: 'shelves', x: 1040, y: 106, width: 112, height: 154, color: '#5e5560', wall: 'back' },
+  { id: 'shelves', x: 1150, y: 106, width: 112, height: 154, color: '#5e5560', wall: 'back' },
   // Extended to the right so its right edge sits side-by-side with the main desk's left edge (one long
   // counter). The model box + legs are lengthened to match (RoomObjectModel case 'instrumentTable').
   { id: 'instrumentTable', x: 60, y: 250, width: 340, height: 180, color: '#5a4a4c' },
@@ -34,7 +34,7 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'portasound', x: 120, y: 342, width: 154, height: 55, color: '#d8c6a4' },
   { id: 'sk5', x: 282, y: 348, width: 100, height: 48, color: '#aeb2b3' },
   { id: 'audioInterface', x: 752, y: 267, width: 54, height: 44, color: '#b73545' },
-  { id: 'mechanicalKeyboard', x: 595, y: 358, width: 112, height: 30, color: '#20242c' },
+  { id: 'mechanicalKeyboard', x: 600, y: 402, width: 112, height: 30, color: '#20242c' },
   { id: 'mouse', x: 701, y: 359, width: 30, height: 28, color: '#343b48' },
   { id: 'lyricNotebook', x: 550, y: 320, width: 50, height: 38, color: '#e7e1d5' },
   { id: 'ashtray', x: 497, y: 351, width: 34, height: 26, color: '#8892a0' },
@@ -45,14 +45,18 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'cables', x: 422, y: 420, width: 96, height: 45, color: '#313a48' },
   { id: 'guitarPedal', x: 438, y: 548, width: 58, height: 42, color: '#2c3440' },
   { id: 'switch', x: 526, y: 422, width: 76, height: 42, color: '#5d7a86' },
-  { id: 'acousticGuitar', x: 280, y: 462, width: 62, height: 156, color: '#ba8653', shape: 'guitar' },
-  { id: 'electricGuitar', x: 362, y: 464, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
+  { id: 'acousticGuitar', x: 235, y: 470, width: 62, height: 156, color: '#ba8653', shape: 'guitar' },
+  { id: 'electricGuitar', x: 400, y: 470, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
   { id: 'bed', x: 1075, y: 305, width: 218, height: 168, color: '#54667d', rotationY: Math.PI / 2 },
   { id: 'bedPhone', x: 1140, y: 335, width: 34, height: 54, color: '#0c0e14' },
   // Pushed up against the back wall (low y) and clear of the bed, which moved right.
   { id: 'miniFridge', x: 982, y: 55, width: 86, height: 132, color: '#a8aeb6' },
   // A stylised ukulele leaning beside the bed — interactive (picked up + played). Not a collider.
   { id: 'ukulele', x: 975, y: 545, width: 50, height: 74, color: '#c68a4e' },
+  // Grey bean bag in the front-left corner by the studio door — perch-height, sit-able by every character.
+  { id: 'beanbag', x: 120, y: 690, width: 90, height: 90, color: '#7b7d84' },
+  // A three-seater sofa in the open front area opposite the desk, facing it — sit-able like the bean bag.
+  { id: 'sofa', x: 545, y: 720, width: 260, height: 96, color: '#4a5464' },
   // Pushed to the front-right corner, clear of the bed.
   { id: 'bathroom', x: 1192, y: 690, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
   // Studio exit door mounted flat against the LEFT wall (rotated a quarter turn), moved toward the front

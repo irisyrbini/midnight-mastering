@@ -9,16 +9,18 @@ export function SfxPlayer() {
   const cue = useGameStore((state) => state.sfxCue);
   const weather = useGameStore((state) => state.weather);
   const paused = useGameStore((state) => state.phase !== 'playing');
+  const rainMuted = useGameStore((state) => state.rainMuted);
   const gaming = useGameStore((state) => state.activeVideoId === 'switch' || state.friendActivity === 'video-game');
   useEffect(() => {
     if (cue.n > 0) playInteractionSfx(cue.id);
   }, [cue]);
   // Gentle rain ambience for as long as the weather holds; hail runs the same loop at a much lower level.
+  // Muted by the HUD rain toggle.
   useEffect(() => {
-    if (!paused && (weather === 'rain' || weather === 'hail')) startRain(weather === 'hail');
+    if (!paused && !rainMuted && (weather === 'rain' || weather === 'hail')) startRain(weather === 'hail');
     else stopRain();
     return stopRain;
-  }, [weather, paused]);
+  }, [weather, paused, rainMuted]);
   // Retro console chirps while a game is being played — irregularly spaced so they stay playful, not rhythmic.
   useEffect(() => {
     if (paused || !gaming) return;

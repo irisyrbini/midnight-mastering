@@ -46,6 +46,7 @@ type GameState = GameSnapshot & {
   ukuleleUntil: number;
   weather: WeatherKind;
   weatherMinutes: number;
+  rainMuted: boolean;
   friendMenuOpen: boolean;
   collaborationMinutes: number;
   guitarNotesMinutes: number;
@@ -83,6 +84,7 @@ type GameState = GameSnapshot & {
   movePlayer: (direction: { x: number; y: number }) => void;
   setMoveTarget: (target: { x: number; y: number; selectId?: string }) => void;
   setRunning: (running: boolean) => void;
+  toggleRainMute: () => void;
   setEntranceOpen: (open: boolean) => void;
   stepMovement: (deltaMs: number) => void;
   stepVisitor: (deltaMs: number) => void;
@@ -141,7 +143,7 @@ const clampToRoom = (p: Point): Point => ({ x: Math.max(70, Math.min(1240, p.x))
 // obstacles the producer should walk around.
 // The studio door (`entrance`) is intentionally NOT a collider, so the producer can walk right up to it
 // (and, on the other floors, right up to the elevator) instead of being stopped short of the trigger.
-const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'closet']);
+const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'closet', 'beanbag', 'sofa']);
 const PLAYER_RADIUS = 14;
 const COLLIDER_INSET = 10;
 // Floor furniture is drawn ~1.4× larger than its layout footprint (FURNITURE_SCALE in the renderer), so
@@ -333,6 +335,7 @@ const initialSession = () => ({
   ukuleleUntil: 0,
   weather: 'clear' as WeatherKind,
   weatherMinutes: 0,
+  rainMuted: false,
   friendMenuOpen: false,
   collaborationMinutes: 0,
   guitarNotesMinutes: 0,
@@ -446,6 +449,7 @@ export const useGameStore = create<GameState>((set) => ({
     return { moveTarget: { ...destination, selectId: target.selectId }, seated: false, lyingDown: false };
   }),
   setRunning: (running) => set((state) => (state.running === running ? state : { running })),
+  toggleRainMute: () => set((state) => ({ rainMuted: !state.rainMuted })),
   setEntranceOpen: (entranceOpen) => set((state) => (state.entranceOpen === entranceOpen ? state : { entranceOpen })),
   stepMovement: (deltaMs) => set((state) => {
     if (state.phase !== 'playing' || !state.moveTarget) return state;
@@ -673,7 +677,9 @@ export const useGameStore = create<GameState>((set) => ({
     const bonus = INSTRUMENT_BONUS[interactionId] ?? 0;
     if (interaction.action === 'sit') {
       const seated = !state.seated;
-      return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? SIT_POSITION : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue, albumProgress: clamp(state.albumProgress + bonus) };
+      // Snap to whichever seat was used (chair / bean bag / sofa), not always the studio chair.
+      const seat = centerOf(interactionId, SIT_POSITION);
+      return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? seat : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue, albumProgress: clamp(state.albumProgress + bonus) };
     }
     if (interaction.action === 'lie') {
       const lyingDown = !state.lyingDown;

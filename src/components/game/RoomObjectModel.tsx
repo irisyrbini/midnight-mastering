@@ -25,6 +25,22 @@ const GUITAR_SHAPE = (() => {
 })();
 const GUITAR_EXTRUDE = { depth: 0.15, bevelEnabled: false };
 
+/** Stratocaster outline: offset double-cutaway body with a long upper (bass) horn and a shorter lower horn. */
+const STRAT_SHAPE = (() => {
+  const s = new THREE.Shape();
+  s.moveTo(0.06, -0.66);
+  s.bezierCurveTo(0.4, -0.68, 0.52, -0.44, 0.5, -0.16); // lower-right bout
+  s.bezierCurveTo(0.49, 0.02, 0.4, 0.08, 0.42, 0.24); // right waist
+  s.bezierCurveTo(0.45, 0.44, 0.34, 0.56, 0.16, 0.52); // shorter treble horn
+  s.bezierCurveTo(0.1, 0.5, 0.08, 0.42, 0.0, 0.44);
+  s.bezierCurveTo(-0.06, 0.6, -0.16, 0.72, -0.3, 0.72); // long bass horn (upper)
+  s.bezierCurveTo(-0.46, 0.72, -0.54, 0.5, -0.5, 0.28); // upper-left
+  s.bezierCurveTo(-0.47, 0.12, -0.42, 0.08, -0.44, -0.08); // left waist
+  s.bezierCurveTo(-0.48, -0.34, -0.44, -0.56, -0.3, -0.64); // lower-left bout
+  s.bezierCurveTo(-0.2, -0.69, -0.1, -0.68, 0.06, -0.66);
+  return s;
+})();
+
 /**
  * Recognizable primitive models for each studio object, keyed by id.
  * Positions/sizes come from src/data/studio-layout.ts and are NOT changed here — only how each object is drawn.
@@ -69,16 +85,45 @@ function KnobGrid({ rows, cols, width, height }: { rows: number; cols: number; w
   return <>{items}</>;
 }
 
-/** Extruded guitar with a real waisted body, sound hole / pickguard, neck, fretboard and headstock. */
-function Guitar({ body, solid }: { body: string; solid?: boolean }) {
-  return <group rotation={[0.16, 0, 0.08]}>
-    <mesh position={[0, 0.78, -0.075]} castShadow><extrudeGeometry args={[GUITAR_SHAPE, GUITAR_EXTRUDE]} /><meshStandardMaterial color={body} roughness={solid ? 0.4 : 0.55} /></mesh>
+/** A tangle of colourful patch cables jumping from knob to knob across the modular panel — each droops
+ *  out of the panel (+z) and sags before plugging into another node, so the rack reads as actively patched. */
+function PatchCables() {
+  const cables = useMemo(() => {
+    const nodes: [number, number][] = [];
+    for (let r = 0; r < 3; r += 1) for (let c = 0; c < 9; c += 1) nodes.push([-0.75 + (c + 0.5) * (1.5 / 9), 0.32 - (r + 0.5) * (0.64 / 3)]);
+    const colors = ['#d84f59', '#e6c34c', '#62cf86', '#4f8f9c', '#b87882', '#e8e2d6', '#e08f4c'];
+    const list: { geo: THREE.TubeGeometry; color: string }[] = [];
+    for (let i = 0; i < 9; i += 1) {
+      const a = nodes[Math.floor(Math.random() * nodes.length)];
+      const b = nodes[Math.floor(Math.random() * nodes.length)];
+      if (a === b) continue;
+      const start = new THREE.Vector3(a[0], a[1], 0.16);
+      const end = new THREE.Vector3(b[0], b[1], 0.16);
+      const mid = start.clone().add(end).multiplyScalar(0.5);
+      mid.z += 0.16 + Math.random() * 0.14; // bow out from the panel
+      mid.y -= 0.06 + Math.random() * 0.1; // and sag downward
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+      list.push({ geo: new THREE.TubeGeometry(curve, 14, 0.014, 6, false), color: colors[i % colors.length] });
+    }
+    return list;
+  }, []);
+  return <>{cables.map((c, i) => <mesh key={i} geometry={c.geo} castShadow><meshStandardMaterial color={c.color} roughness={0.5} /></mesh>)}</>;
+}
+
+/** Extruded guitar with a real waisted body (acoustic) or a Stratocaster body (electric), plus sound hole /
+ *  pickguard, neck, fretboard and headstock. `scale` shrinks the whole instrument. */
+function Guitar({ body, solid, scale = 1 }: { body: string; solid?: boolean; scale?: number }) {
+  return <group rotation={[0.16, 0, 0.08]} scale={scale}>
+    <mesh position={[0, 0.78, -0.075]} castShadow><extrudeGeometry args={[solid ? STRAT_SHAPE : GUITAR_SHAPE, GUITAR_EXTRUDE]} /><meshStandardMaterial color={body} roughness={solid ? 0.4 : 0.55} /></mesh>
     {!solid
       ? <mesh position={[0, 0.7, 0.085]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.1, 0.1, 0.05, 20]} /><meshStandardMaterial color="#160f0a" /></mesh>
-      : <mesh position={[0.13, 0.62, 0.085]} rotation={[0, 0, 0.35]}><boxGeometry args={[0.26, 0.42, 0.02]} /><meshStandardMaterial color="#15151b" /></mesh>}
+      : <mesh position={[0.12, 0.6, 0.085]} rotation={[0, 0, 0.28]}><boxGeometry args={[0.34, 0.5, 0.02]} /><meshStandardMaterial color="#15151b" /></mesh>}
     <mesh position={[0, 1.62, 0]} castShadow><boxGeometry args={[0.1, 1.1, 0.07]} /><meshStandardMaterial color="#2a2019" /></mesh>
     <mesh position={[0, 1.62, 0.04]}><boxGeometry args={[0.08, 1.08, 0.02]} /><meshStandardMaterial color="#15100b" /></mesh>
-    <mesh position={[0, 2.2, 0]}><boxGeometry args={[0.16, 0.3, 0.05]} /><meshStandardMaterial color="#15100b" /></mesh>
+    {/* Strat-style 6-in-line headstock for the electric; simple paddle for the acoustic. */}
+    {solid
+      ? <mesh position={[-0.05, 2.24, 0]} rotation={[0, 0, 0.12]}><boxGeometry args={[0.14, 0.34, 0.05]} /><meshStandardMaterial color="#15100b" /></mesh>
+      : <mesh position={[0, 2.2, 0]}><boxGeometry args={[0.16, 0.3, 0.05]} /><meshStandardMaterial color="#15100b" /></mesh>}
   </group>;
 }
 
@@ -341,6 +386,33 @@ function UkuleleModel() {
   </group>;
 }
 
+/** A grey bean bag — a squashed rounded mass with a seat dip, perch-height (seat top ≈ 1.0 world) so the
+ *  shared sit pose lands on it. Authored at final size (not FURNITURE_SCALE'd). */
+function BeanBag() {
+  return <group>
+    <mesh position={[0, 0.5, 0]} scale={[1, 0.8, 1]} castShadow receiveShadow><sphereGeometry args={[0.9, 20, 16]} /><meshStandardMaterial color="#7b7d84" roughness={0.95} /></mesh>
+    {/* a slumped upper lobe / backrest so it reads as a bean bag, not a ball */}
+    <mesh position={[0, 0.95, -0.32]} scale={[0.92, 0.7, 0.7]} castShadow><sphereGeometry args={[0.7, 18, 14]} /><meshStandardMaterial color="#83858c" roughness={0.95} /></mesh>
+    {/* seat dip */}
+    <mesh position={[0, 0.92, 0.14]} scale={[0.7, 0.35, 0.7]}><sphereGeometry args={[0.6, 16, 12]} /><meshStandardMaterial color="#6c6e75" roughness={0.98} /></mesh>
+  </group>;
+}
+
+/** A three-seater sofa: base + seat cushions + backrest + arms. Seat top ≈ 1.0 world for the shared sit pose. */
+function Sofa() {
+  return <group>
+    {/* base */}
+    <mesh position={[0, 0.42, 0]} castShadow receiveShadow><boxGeometry args={[3.6, 0.5, 1.3]} /><meshStandardMaterial color="#3d4655" roughness={0.9} /></mesh>
+    {/* seat cushions (3) */}
+    {[-1.15, 0, 1.15].map((cx) => <mesh key={cx} position={[cx, 0.78, 0.08]} castShadow><boxGeometry args={[1.08, 0.28, 1.0]} /><meshStandardMaterial color="#4a5464" roughness={0.92} /></mesh>)}
+    {/* backrest */}
+    <mesh position={[0, 1.15, -0.5]} castShadow><boxGeometry args={[3.6, 0.9, 0.32]} /><meshStandardMaterial color="#454f5e" roughness={0.9} /></mesh>
+    {[-1.15, 0, 1.15].map((cx) => <mesh key={`b${cx}`} position={[cx, 1.05, -0.42]}><boxGeometry args={[1.06, 0.66, 0.16]} /><meshStandardMaterial color="#505b6c" roughness={0.92} /></mesh>)}
+    {/* arms */}
+    {[-1.86, 1.86].map((ax) => <mesh key={ax} position={[ax, 0.86, 0]} castShadow><boxGeometry args={[0.28, 0.9, 1.3]} /><meshStandardMaterial color="#414b59" roughness={0.9} /></mesh>)}
+  </group>;
+}
+
 /** Wall poster with two colour panels. `drop` hangs it lower to break an even row line. */
 function Poster({ top, bottom, drop = 0 }: { top: string; bottom: string; drop?: number }) {
   return <group position={[0, 2.05 - drop, 0]}>
@@ -494,7 +566,7 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[0, 0.06, 0.05]}><boxGeometry args={[1.75, 0.12, 0.5]} /><meshStandardMaterial color="#1a1a22" /></mesh>
       <group position={[0, 0.42, -0.08]} rotation={[-0.42, 0, 0]}>
         <mesh castShadow><boxGeometry args={[1.7, 0.8, 0.16]} /><meshStandardMaterial color="#2a2531" /></mesh>
-        <group position={[0, 0, 0.1]}><KnobGrid rows={3} cols={9} width={1.5} height={0.64} /></group>
+        <group position={[0, 0, 0.1]}><KnobGrid rows={3} cols={9} width={1.5} height={0.64} /><PatchCables /></group>
       </group>
     </group>;
 
@@ -508,8 +580,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <KeyStrip y={0.15} width={1.0} />
     </group>;
 
-    case 'acousticGuitar': return <Guitar body="#ba8653" />;
-    case 'electricGuitar': return <Guitar body="#e9e8df" solid />;
+    case 'acousticGuitar': return <Guitar body="#ba8653" scale={0.78} />;
+    case 'electricGuitar': return <Guitar body="#e9e8df" solid scale={0.78} />;
 
     case 'bed': return <Bed />;
 
@@ -518,6 +590,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'bathroom': return <Door color="#456473" />;
     case 'entrance': return <EntranceDoor />;
     case 'ukulele': return <UkuleleModel />;
+    case 'beanbag': return <BeanBag />;
+    case 'sofa': return <Sofa />;
     case 'closet': return <SlidingCloset />;
 
     case 'cables': return <group>

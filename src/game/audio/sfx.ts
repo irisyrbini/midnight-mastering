@@ -93,23 +93,30 @@ export function playKeyboardChord() {
   [261.63, 329.63, 392.0, 523.25].forEach((freq, index) => pluck(ac, freq, t + index * 0.035, 1.35, 'sine', 0.72, 4200));
 }
 
-/** Gritty overdriven power-chord for the guitar effects pedal (waveshaper distortion). */
+/** High-gain distorted guitar chord with a volume swell — the "좡~" of a cranked overdrive pedal: it
+ *  blooms in and rings out, heavily saturated and a touch brighter than a clean chord. */
 export function playDistortion() {
   const ac = audio();
   if (!ac) return;
   const t = ac.currentTime;
   const shaper = ac.createWaveShaper();
-  const curve = new Float32Array(256);
-  for (let i = 0; i < 256; i += 1) { const x = (i / 128) - 1; curve[i] = ((3 + 22) * x * 0.9) / (Math.PI + 22 * Math.abs(x)); }
+  const curve = new Float32Array(1024);
+  const k = 60; // heavy drive
+  for (let i = 0; i < 1024; i += 1) { const x = (i / 512) - 1; curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x)); }
   shaper.curve = curve; shaper.oversample = '4x';
-  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2100;
-  const out = ac.createGain(); out.gain.value = 0.14;
-  shaper.connect(lp); lp.connect(out); out.connect(ac.destination);
-  [82.4, 123.5, 164.8].forEach((f) => { // E power chord
-    const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = f;
-    const g = ac.createGain();
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5, t + 0.012); g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
-    osc.connect(g); g.connect(shaper); osc.start(t); osc.stop(t + 1.6);
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+  // The swell: overall volume blooms up over ~0.18s then rings out over ~2.2s ("좡~").
+  const swell = ac.createGain();
+  swell.gain.setValueAtTime(0.0001, t);
+  swell.gain.exponentialRampToValueAtTime(0.16, t + 0.18);
+  swell.gain.exponentialRampToValueAtTime(0.0008, t + 2.4);
+  shaper.connect(lp); lp.connect(swell); swell.connect(ac.destination);
+  [82.4, 123.5, 164.8, 246.9].forEach((f) => { // E5 power chord + octave
+    [1, 1.003].forEach((detune) => { // slight detune for thickness
+      const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = f * detune;
+      const g = ac.createGain(); g.gain.value = 0.5;
+      osc.connect(g); g.connect(shaper); osc.start(t); osc.stop(t + 2.5);
+    });
   });
 }
 
@@ -131,19 +138,38 @@ export function playPillShake() {
   }
 }
 
-/** Short, non-melodic modular blip used by the collaborator's ambient idle. */
+/** Dark techno modular drone — a low, filtered saw bass pulsing "웅웅웅웅" under a slow tremolo, with a
+ *  detuned second oscillator for width. Used for the modular synth interaction and the collaborator idle. */
 export function playModularPatch() {
   const ac = audio();
   if (!ac) return;
   const t = ac.currentTime;
-  [110, 146.8, 207.7].forEach((freq, index) => pluck(ac, freq * (0.98 + Math.random() * 0.05), t + index * 0.11, 0.7 + Math.random() * 0.5, 'sawtooth', 0.12, 900 + Math.random() * 1000));
+  const base = 55; // low A — dark techno bass register
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 6;
+  // Sweep the filter down slowly so the drone reads as "웅웅…" settling.
+  lp.frequency.setValueAtTime(520, t); lp.frequency.exponentialRampToValueAtTime(220, t + 2.6);
+  const out = ac.createGain(); out.gain.value = 0.16;
+  // Tremolo LFO chops the level into the pulsing 웅-웅-웅.
+  const lfo = ac.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 6.5;
+  const lfoGain = ac.createGain(); lfoGain.gain.value = 0.5;
+  const trem = ac.createGain(); trem.gain.value = 0.5;
+  lfo.connect(lfoGain); lfoGain.connect(trem.gain); lfo.start(t); lfo.stop(t + 2.8);
+  lp.connect(trem); trem.connect(out); out.connect(ac.destination);
+  const env = ac.createGain();
+  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(1, t + 0.15); env.gain.exponentialRampToValueAtTime(0.0008, t + 2.7);
+  env.connect(lp);
+  [base, base * 1.006, base * 2].forEach((f, i) => {
+    const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = f;
+    const g = ac.createGain(); g.gain.value = i === 2 ? 0.35 : 0.7;
+    osc.connect(g); g.connect(env); osc.start(t); osc.stop(t + 2.8);
+  });
 }
 
 /** Gentle looping rain ambience: filtered noise, faded in/out so it never snaps on. */
 let rainLoop: { src: AudioBufferSourceNode; gain: GainNode; hail: boolean } | null = null;
 
 /** Rain sits at full level; hail is deliberately mixed well under it so it never buries the music. */
-const RAIN_LEVEL = 0.024; // gentle background ambience — sits well under the music
+const RAIN_LEVEL = 0.013; // very soft background ambience — barely there, well under the music
 const HAIL_LEVEL = RAIN_LEVEL * 0.5;
 
 export function startRain(hail = false) {
