@@ -611,9 +611,10 @@ const GLB_SIT = '/models/sit.glb'; // Step_to_Sit_Transition (plays once, holds 
 const GLB_LIE = '/models/lie.glb'; // Knock_Down (plays once, holds the lying end pose)
 // Interaction poses, re-exported as FBX (the GLB versions had their motion stuck on an unusable rigify
 // track). These carry real motion on the Armature bones, so they drive Jonny's seated / lying activities:
-// NOTE: the maketune/drink/scroll FBX clips are authored on a rig whose Hips rest doesn't map onto this
-// GLB player skeleton (they render displaced/invisible), so seated/lying activities use the GLB sit/lie
-// poses + FX overlays instead. Only the ukulele performance FBX binds cleanly (quaternion-only, standing).
+// NOTE: the maketune/drink FBX clips keep Hips translation on a rig whose rest doesn't map onto this GLB
+// skeleton (they render displaced/invisible), so those SEATED activities use the GLB sit pose + FX overlays.
+// The scroll + ukulele FBX are quaternion-only (no foreign translation), so they bind cleanly.
+const FBX_SCROLL = '/models/scroll.fbx'; // Doomscroll (lying, thumbing the phone)
 const FBX_UKULELE = '/models/ukulele.fbx'; // Ukulele performance (standing, strumming)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
@@ -625,8 +626,8 @@ const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tun
 const SEAT_ROOT_Y = 0.06; // GLB sit clip — lands the butt on the chair seat (tuned by eye)
 const SEAT_ROOT_Z = -0.1; // settle back into the chair
 const LIE_ROOT_Y = 0.72; // rest on the mattress surface
-const LIE_ROOT_Z = -0.2; // slide toward the pillow
-const LIE_YAW = Math.PI / 2; // align the lying body along the bed (head toward −x)
+const LIE_ROOT_Z = 0.2; // slide toward the pillow / headboard end
+const LIE_YAW = -Math.PI / 2; // align the lying body along the bed, head at the headboard (bed head)
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
 //    look we override it at runtime with a matte near-black material so the character reads as a moving
@@ -754,6 +755,7 @@ function PlayerModel() {
   const sit = useGLTF(GLB_SIT);
   const lie = useGLTF(GLB_LIE);
   // Interaction poses (FBX): real motion on the Armature bones, bound by bone name to the GLB skeleton.
+  const scrollFbx = useLoader(FBXLoader, FBX_SCROLL);
   const ukuleleFbx = useLoader(FBXLoader, FBX_UKULELE);
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
@@ -784,8 +786,9 @@ function PlayerModel() {
     pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'),
     // sit/lie (GLB) bake a step-in walk into the root — anchor them in place so the body stays on the chair/bed.
     anchorHipsInPlace(pickClip(sit, 'sit')), anchorHipsInPlace(pickClip(lie, 'lie')),
+    fbxPick(scrollFbx, 'scroll'), // doomscroll lying pose (quaternion-only)
     fbxPick(ukuleleFbx, 'ukulele'), // standing strum performance (quaternion-only, upright)
-  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, ukuleleFbx]);
+  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scrollFbx, ukuleleFbx]);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
@@ -805,6 +808,7 @@ function PlayerModel() {
     // are differentiated by their FX/prop overlays instead. Lying (sleep / doomscroll) uses the GLB `lie`.
     const want = moving ? (s.running ? 'run' : 'walk')
       : s.playingUkulele ? 'ukulele' // standing strum performance (ukulele.fbx)
+      : (lying && s.scrolling) ? 'scroll' // doomscroll: real scroll motion, same lie orientation
       : lying ? 'lie'
       : seated ? 'sit'
       : 'idle';
@@ -842,7 +846,7 @@ function PlayerModel() {
 }
 useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
 useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE);
-useLoader.preload(FBXLoader, FBX_UKULELE);
+useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_UKULELE);
 
 /** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
  *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only

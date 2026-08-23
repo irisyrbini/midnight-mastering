@@ -120,7 +120,10 @@ export const ELEVATOR_DOOR_MS = 1000;
 export const ELEVATOR_DING_MS = 1000; // before arrival
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
-export const GAME_MINUTES_PER_REAL_SECOND = 1.3; // gentler pace: a day passes in ~9 min real, needs drain slower
+export const GAME_MINUTES_PER_REAL_SECOND = 0.95; // gentler pace: time passes slowly through the night
+// The playable night runs 12:00 AM (minuteOfDay 0) → 6:00 AM, then the producer falls asleep and the day
+// rolls over (needs refill, rested). 6 AM = 360 in-game minutes.
+const MINUTES_PER_DAY = 360;
 const decayPerGameMinute: ProducerNeeds = { hunger: 0.12, energy: 0.12, hygiene: 0.06, social: 0.08, creativity: 0.09, love: 0.05 };
 
 /** Point-and-click navigation target. `selectId` keeps a clicked object selected while walking to it. */
@@ -536,9 +539,9 @@ export const useGameStore = create<GameState>((set) => ({
     const weatherGraph = weatherChanged && badWeather ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'burnout', direction: 'up' }]) : state.emotionalGraph;
     needs = applyNeedChange(needs, Object.fromEntries(Object.entries(emotionalNeedDrift(weatherGraph)).map(([key, value]) => [key, value * gameMinutes])));
     const totalMinutes = state.clock.minuteOfDay + gameMinutes;
-    // This prototype's playable day is midnight through noon. Album progress
-    // deliberately does not appear in the reset frame, so it carries forward.
-    const dayCount = Math.floor(totalMinutes / 720);
+    // The playable night is midnight → 6 AM; at 6 AM the producer falls asleep and a new night begins.
+    // Album progress deliberately does not appear in the reset frame, so it carries forward.
+    const dayCount = Math.floor(totalMinutes / MINUTES_PER_DAY);
     const dayFinished = dayCount > 0;
     const dailyNeeds: ProducerNeeds = { hunger: 72, energy: 70, hygiene: 66, social: 48, creativity: 62, love: 54 };
     if (dayFinished) needs = dailyNeeds;
@@ -573,7 +576,7 @@ export const useGameStore = create<GameState>((set) => ({
     const base = {
       elapsedMs,
       needs,
-      clock: { day: state.clock.day + dayCount, minuteOfDay: totalMinutes % 720 },
+      clock: { day: state.clock.day + dayCount, minuteOfDay: totalMinutes % MINUTES_PER_DAY },
       stress: clamp(state.stress + stressDrift * gameMinutes),
       wellnessMinutes: wellnessResolve ? 0 : wellnessAccum,
       weather,
