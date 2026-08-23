@@ -40,6 +40,10 @@ public/models/*
 !public/models/sit.glb
 !public/models/lie.glb
 !public/models/scroll.glb
+# Player interaction poses (FBX — the usable, Armature-bound versions of make-tune / drink / doomscroll).
+!public/models/maketune.fbx
+!public/models/drink.fbx
+!public/models/scroll.fbx
 !public/models/shadow
 !public/models/bigfreq
 public/models/shadow/*
@@ -47,5 +51,10 @@ public/models/bigfreq/*
 !public/models/shadow/walk.glb
 !public/models/shadow/sit.glb
 !public/models/shadow/idle.glb
-!public/models/bigfreq/walk.glb
-!public/models/bigfreq/idle.glb
+# NPC2 (Tom = redesigned "Urban Shadow Figure") is now FBX: mesh/idle + walk clip + its textures.
+!public/models/bigfreq/idle.fbx
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0.png
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0_normal.png
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0_roughness.png
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0_metallic.png

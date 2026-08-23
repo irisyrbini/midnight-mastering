@@ -40,6 +40,15 @@ export function playAcousticStrum() {
   CHORD.forEach((f, i) => pluck(ac, f, t + i * 0.05, 0.95, 'triangle', 1, 2600));
 }
 
+const UKE_CHORD = [392.0, 261.63, 329.63, 440.0, 523.25]; // GCEA re-entrant ukulele voicing, bright
+/** Bright, quick nylon-string ukulele strum. */
+export function playUkuleleStrum() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  UKE_CHORD.forEach((f, i) => pluck(ac, f, t + i * 0.028, 0.7, 'triangle', 0.85, 3200));
+}
+
 /** Brighter, sustained, slightly overdriven electric chord. */
 export function playElectricStrum() {
   const ac = audio();
@@ -191,4 +200,5 @@ export function playInteractionSfx(id: string) {
   else if (id === 'lyricNotebook') playScribble();
   else if (id === 'modularSynths') playModularPatch();
   else if (id === 'switch') playConsoleBlip();
+  else if (id === 'ukulele') playUkuleleStrum();
 }

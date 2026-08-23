@@ -1,12 +1,13 @@
 'use client';
 
-import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
+import { Canvas, useFrame, useThree, useLoader, type ThreeEvent } from '@react-three/fiber';
 import { Html, Sparkles, OrbitControls, useGLTF, useAnimations } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { Suspense, useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
-import { STUDIO_OBJECTS, type StudioObject } from '@/data/studio-layout';
+import { STUDIO_OBJECTS, SYNTH_CENTER, type StudioObject } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
 import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, useGameStore } from '@/store/game-store';
 import { RoomObjectModel, DESK_Y, DESK_Z_OFFSET, DESKTOP_IDS, TABLE2_Y, TABLE_IDS } from './RoomObjectModel';
@@ -19,7 +20,10 @@ import { dayCycle } from '@/game/simulation/day-cycle';
  * the walls, floor and ceiling below, which all scale by ROOM_SCALE) grow around it.
  */
 const UNITS_PER_WORLD = 72;
-const ROOM_SCALE = 90 / UNITS_PER_WORLD; // room shell grows by the same factor the layout spreads
+// Room shell size. Kept SEPARATE from UNITS_PER_WORLD on purpose: lowering UNITS_PER_WORLD would spread
+// every prop apart (scattering the desktop off the desk), whereas raising this only pushes the walls /
+// floor / ceiling outward around the same furniture cluster — a bigger room without disturbing layout.
+const ROOM_SCALE = 104 / UNITS_PER_WORLD;
 
 // Wall planes, derived from the same ROOM_SCALE the wall meshes below use, so anything anchored to a
 // wall moves with it if the room is resized. The 0.09 is half the 0.18 wall thickness — its inner
@@ -603,9 +607,13 @@ function ThoughtBubble({ y }: { y: number }) {
 const GLB_IDLE = '/models/idle.glb';
 const GLB_WALK = '/models/walking.glb';
 const GLB_RUN = '/models/running.glb';
-const GLB_SIT = '/models/sit.glb'; // Sit_and_Doze_Off (loops)
-const GLB_LIE = '/models/lie.glb'; // Knock_Down_on_bed (plays once, holds the lying end pose)
-const GLB_SCROLL = '/models/scroll.glb'; // Lie_Down_Hands_Spread_doomscroll (holds the end pose)
+const GLB_SIT = '/models/sit.glb'; // Step_to_Sit_Transition (plays once, holds the seated end pose)
+const GLB_LIE = '/models/lie.glb'; // Knock_Down (plays once, holds the lying end pose)
+// Interaction poses, re-exported as FBX (the GLB versions had their motion stuck on an unusable rigify
+// track). These carry real motion on the Armature bones, so they drive Jonny's seated / lying activities:
+const FBX_TUNE = '/models/maketune.fbx'; // Make-a-Tune (seated at the desk, working on music)
+const FBX_DRINK = '/models/drink.fbx'; // Drink Vodka (seated)
+const FBX_SCROLL = '/models/scroll.fbx'; // Doomscroll (lying, thumbing the phone)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
 // Root placement for the real seated / lying clips (the clip poses the body; we only place the root).
@@ -655,6 +663,39 @@ function pickClip(g: { animations: THREE.AnimationClip[] }, name: string, basePo
   const c = src?.clone(); if (c) c.name = name; return c;
 }
 
+// ── FBX clips. Unlike the GLB exports (whose usable motion was stuck on an unusable rigify track), the
+//    FBX re-exports keep every clip on the real Armature bone names, so they drive the GLB- OR FBX-skinned
+//    character by bone name. We keep ONLY the quaternion tracks: rotation is unit-agnostic (a clip authored
+//    in centimetres poses a metre-scaled mesh correctly) and dropping the position/scale tracks removes the
+//    cm-scale root drift — the sim places the root itself. ──
+function fbxRotationClip(src: THREE.AnimationClip | undefined, name: string, dropRoot = false): THREE.AnimationClip | undefined {
+  if (!src) return undefined;
+  const c = src.clone();
+  // Keep rotation only. `dropRoot` also drops the Hips (root) track: when a clip is lifted from a file
+  // whose export up-axis differs from the target mesh, the root world-orientation is inconsistent and
+  // flips the body — but the per-limb rotations (relative to the root) are shared across the same rig,
+  // so dropping the root leaves the body at the mesh's upright bind while the limbs still animate.
+  c.tracks = c.tracks.filter((t) => /\.quaternion$/.test(t.name) && !(dropRoot && /^Hips\./.test(t.name)));
+  c.name = name;
+  return c;
+}
+/** Pick the meaningful clip from an FBX group: the one carrying motion (skip the 0.07s `clip0` base pose
+ *  unless `basePose` explicitly wants that static standing pose), then reduce it to rotation-only. */
+function fbxPick(g: { animations: THREE.AnimationClip[] }, name: string, basePose = false, dropRoot = false): THREE.AnimationClip | undefined {
+  const anims = g.animations ?? [];
+  const src = basePose
+    ? (anims.find((a) => /clip0|baselayer/i.test(a.name)) ?? anims[0])
+    : (anims.find((a) => !/clip0/i.test(a.name)) ?? anims[0]);
+  return fbxRotationClip(src, name, dropRoot);
+}
+/** Scale factor that makes `root` stand `targetHeight` world units tall, whatever units the source used
+ *  (FBX often imports in centimetres). Measured from the world-space bounding box after cloning. */
+function heightScale(root: THREE.Object3D, targetHeight: number): number {
+  const box = new THREE.Box3().setFromObject(root);
+  const h = box.max.y - box.min.y;
+  return h > 0.0001 ? targetHeight / h : 1;
+}
+
 // Bone handles used to pose the GLB skeleton procedurally (seated legs, arms-down idle) on top of / in
 // place of a clip. Shared by all three characters (identical 24-bone rig).
 type PoseBones = { ulL?: THREE.Object3D; ulR?: THREE.Object3D; lL?: THREE.Object3D; lR?: THREE.Object3D; spine?: THREE.Object3D; aL?: THREE.Object3D; aR?: THREE.Object3D; fL?: THREE.Object3D; fR?: THREE.Object3D };
@@ -662,16 +703,38 @@ function grabPoseBones(root: THREE.Object3D): PoseBones {
   const g = (n: string) => root.getObjectByName(n) ?? undefined;
   return { ulL: g('LeftUpLeg'), ulR: g('RightUpLeg'), lL: g('LeftLeg'), lR: g('RightLeg'), spine: g('Spine'), aL: g('LeftArm'), aR: g('RightArm'), fL: g('LeftForeArm'), fR: g('RightForeArm') };
 }
+
+/** A small ukulele that parents to the player's right-hand bone during the pick-up-and-play interaction,
+ *  so it follows the strum pose. Authored in bone-local space (~metres); tune the transform against the rig. */
+function createHandUkulele(): THREE.Group {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: '#c68a4e', roughness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: '#2a1c12' });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), wood); body.scale.set(1, 1.25, 0.42); g.add(body);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.035, 14), dark); hole.position.set(0, 0.02, 0.052); g.add(hole);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.028), new THREE.MeshStandardMaterial({ color: '#7a5a41', roughness: 0.6 })); neck.position.set(0, 0.27, 0); g.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.02), dark); head.position.set(0, 0.46, 0.005); g.add(head);
+  g.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.castShadow = true; });
+  g.rotation.set(0.25, 0.1, -1.05); // lie across the body, neck out to the side
+  g.position.set(0.06, 0.02, 0.06);
+  g.scale.setScalar(1.1);
+  return g;
+}
 function PlayerModel() {
   const idle = useGLTF(GLB_IDLE);
   const walk = useGLTF(GLB_WALK);
   const run = useGLTF(GLB_RUN);
   const sit = useGLTF(GLB_SIT);
   const lie = useGLTF(GLB_LIE);
-  const scroll = useGLTF(GLB_SCROLL);
+  // Interaction poses (FBX): real motion on the Armature bones, bound by bone name to the GLB skeleton.
+  const tuneFbx = useLoader(FBXLoader, FBX_TUNE);
+  const drinkFbx = useLoader(FBXLoader, FBX_DRINK);
+  const scrollFbx = useLoader(FBXLoader, FBX_SCROLL);
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
   useEffect(() => () => silhouette.dispose(), [silhouette]);
+  const playingUkulele = useGameStore((s) => s.playingUkulele);
+  const handUke = useMemo(() => createHandUkulele(), []);
   // Clone the mesh from the WALK file (a clean Armature skeleton) so every clip — walk, run, and the
   // idle base pose lifted from idle.glb — binds by bone name. Shadow-enable + apply the silhouette.
   // Bone handles are for procedural seated/lying posing (the export has no sit/lie clip).
@@ -683,7 +746,19 @@ function PlayerModel() {
     bones.current = grabPoseBones(root);
     return root;
   }, [walk.scene, silhouette]);
-  const clips = useMemo(() => [pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'), pickClip(sit, 'sit'), pickClip(lie, 'lie'), pickClip(scroll, 'scroll')].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scroll]);
+  // Parent the ukulele to the right-hand bone only while the pick-up-and-play interaction runs, so it
+  // rides the strum pose — and there's never a duplicate left on the floor (the bedside one hides).
+  useEffect(() => {
+    if (!playingUkulele) return;
+    const hand = scene.getObjectByName('RightHand') ?? scene.getObjectByName('LeftHand');
+    if (!hand) return;
+    hand.add(handUke);
+    return () => { hand.remove(handUke); };
+  }, [playingUkulele, scene, handUke]);
+  const clips = useMemo(() => [
+    pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'), pickClip(sit, 'sit'), pickClip(lie, 'lie'),
+    fbxPick(tuneFbx, 'tune'), fbxPick(drinkFbx, 'drink'), fbxPick(scrollFbx, 'scroll'),
+  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, tuneFbx, drinkFbx, scrollFbx]);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
@@ -697,15 +772,24 @@ function PlayerModel() {
     const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
     const moving = !seated && !lying && Math.hypot(dx, dz) > 0.0015;
     const ease = Math.min(1, dt * 10);
-    // Clip per state: walk/run travelling, sit at the desk, lie/scroll on the bed, else idle. All are
-    // real clips now — the mixer poses the whole body, so no procedural bone posing is needed.
-    const want = moving ? (s.running ? 'run' : 'walk') : seated ? 'sit' : lying ? (s.scrolling ? 'scroll' : 'lie') : 'idle';
+    // Clip per state: walk/run travelling; seated → make-a-tune / drink-vodka / plain sit; lying →
+    // doomscroll / sleep; else idle. All real clips — the mixer poses the whole body.
+    const want = moving ? (s.running ? 'run' : 'walk')
+      : s.playingUkulele ? 'tune' // standing strum performance reuses the arms-up tune pose
+      : (lying && s.scrolling) ? 'scroll'
+      : lying ? 'lie'
+      : (seated && s.workingOnMusic) ? 'tune'
+      : (seated && s.lastInteraction?.id === 'vodka') ? 'drink'
+      : seated ? 'sit'
+      : 'idle';
     if (want !== c.clip) {
       const prev = actions[c.clip]; if (prev) prev.fadeOut(0.2);
       const next = actions[want];
       if (next) {
         next.reset();
-        const once = want === 'lie' || want === 'scroll'; // fall onto the bed once, then hold the pose
+        // Locomotion, idle, and the ongoing seated/lying ACTIVITY loops (tune / drink / scroll) cycle;
+        // only the one-shot transitions (sit / lie) play once and hold their end frame.
+        const once = want === 'sit' || want === 'lie';
         next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
         next.clampWhenFinished = once;
         next.fadeIn(0.2).play();
@@ -731,7 +815,8 @@ function PlayerModel() {
   return <group ref={group} scale={MODEL_SCALE}><primitive object={scene} /></group>;
 }
 useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
-useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE); useGLTF.preload(GLB_SCROLL);
+useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE);
+useLoader.preload(FBXLoader, FBX_TUNE); useLoader.preload(FBXLoader, FBX_DRINK); useLoader.preload(FBXLoader, FBX_SCROLL);
 
 /** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
  *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only
@@ -749,7 +834,8 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
   const thoughtY = lyingDown ? 1.9 : seated ? 2.9 : 3.75;
   const smokeHipY = lyingDown ? 0.8 : seated ? 0.72 : 0.95;
   return <group position={[x, 0, z]}>
-    <Suspense fallback={<WalkingFigure />}><PlayerModel /></Suspense>
+    {/* Keep the canonical GLB mounted as the only player body; loading never flashes the legacy procedural body. */}
+    <Suspense fallback={null}><PlayerModel /></Suspense>
     {/* Smoking rides the body in every state (was lost when the GLB replaced the procedural walker). */}
     <SmokingEffect hipY={smokeHipY} />
     {/* Seated collaboration props. */}
@@ -904,12 +990,13 @@ function Npc1Model() {
     if (!s.visitorActive || !group.current) return;
     const [vx, vz] = toWorld(s.visitorPos.x, s.visitorPos.y);
     const [px, pz] = toWorld(s.playerPosition.x, s.playerPosition.y);
-    const [sx, sz] = toWorld(323, 277); // modular synth anchor
+    const [sx, sz] = toWorld(SYNTH_CENTER.x, SYNTH_CENTER.y); // the synth controls NPC1 faces
     const c = st.current;
     if (!c.ready) { c.x = vx; c.z = vz; c.ready = true; }
     const dx = vx - c.x, dz = vz - c.z; c.x = vx; c.z = vz;
     const moving = Math.hypot(dx, dz) > 0.0015 && !s.friendActivity;
-    // Face travel while walking, the producer during a seated activity, else the synth it's playing.
+    // Face travel while walking, the producer during a seated activity, else the synth controls it plays.
+    // NPC1 now stands at the performance anchor IN FRONT of the rack, so it simply faces the synth centre.
     let tx = sx - vx, tz = sz - vz;
     if (s.friendActivity) { tx = px - vx; tz = pz - vz; } else if (moving) { tx = dx; tz = dz; }
     const target = Math.atan2(tx, tz) + MODEL_FORWARD;
@@ -917,13 +1004,17 @@ function Npc1Model() {
     c.facing += diff * Math.min(1, dt * 6);
     group.current.position.set(vx, 0, vz);
     group.current.rotation.y = c.facing;
-    // Clip: seated during an activity (sit pose held on its last frame), walk while moving, else the
-    // idle base pose (standing at the synth).
+    // Clip: a held seated pose during any friend activity (tune/vodka differentiated by the FX/prop
+    // overlays), walk while moving, else the idle base pose (standing at the synth).
     const want = s.friendActivity ? 'sit' : moving ? 'walk' : 'idle';
     if (want !== c.clip) {
-      if (c.clip === 'sit') actions.sit?.stop(); else if (c.clip) actions[c.clip]?.fadeOut(0.2);
-      if (want === 'sit') { const a = actions.sit; if (a) { a.reset().play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } }
-      else if (want) actions[want]?.reset().fadeIn(0.2).play();
+      if (c.clip) actions[c.clip]?.fadeOut(0.2);
+      const a = actions[want];
+      if (a) {
+        a.reset();
+        if (want === 'sit') { a.play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } // hold the seated end frame
+        else { const once = want !== 'walk' && want !== 'idle'; a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); a.clampWhenFinished = once; a.fadeIn(0.2).play(); }
+      }
       c.clip = want;
     }
     // Vodka: raise/tip the glass on a loose timer while drinking.
@@ -950,7 +1041,8 @@ useGLTF.preload(NPC1_WALK); useGLTF.preload(NPC1_SIT); useGLTF.preload(NPC1_IDLE
 function Visitor() {
   const active = useGameStore((state) => state.visitorActive);
   if (!active) return null;
-  return <Suspense fallback={<VisitorProcedural />}><Npc1Model /></Suspense>;
+  // Path is always the Shadow Frequency GLB; the fallback stays empty instead of showing a second procedural body.
+  return <Suspense fallback={null}><Npc1Model /></Suspense>;
 }
 
 const NPC2_COAT = '#75614f';
@@ -1069,30 +1161,30 @@ function Npc2Procedural() {
   </group>;
 }
 
-// ── Tom (NPC2) = the big Frequency GLB. A separate character from Path (Shadow Frequency). Drives from
-//    NPC2's own wander state (npc2Pos), walks toward targets and idles (bind pose) at each pause. ──
-const NPC2_WALK = '/models/bigfreq/walk.glb'; // Tom = big Frequency
-const NPC2_IDLE = '/models/bigfreq/idle.glb'; // canonical base pose (clip0)
-// Tom 179cm. Jonny 173cm renders at 2.89 units (≈59.9 cm/unit), so 179cm → ~2.99 units; big Frequency is
-// 1.79 raw, so scale ≈ 2.99/1.79 ≈ 1.67 (measured bounding box). Reads ~3.5% taller than Jonny, below Path.
-const NPC2_SCALE = 1.67;
+// ── Tom (NPC2) = the redesigned "Urban Shadow Figure", now an FBX character (mesh + clips both FBX).
+//    A separate character from Path (Shadow Frequency). Drives from NPC2's own wander state (npc2Pos),
+//    walks toward targets and idles at each pause. The mesh imports in centimetres, so its render scale
+//    is measured at load (heightScale) rather than hand-tuned. ──
+const NPC2_MESH = '/models/bigfreq/idle.fbx'; // redesigned mesh + idle pose (rigify_clip)
+const NPC2_WALK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx';
+const NPC2_TARGET_HEIGHT = 3.0; // world units — Tom reads a touch taller than Jonny's ~2.89
 const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
 
 function Npc2Model() {
-  const walkGlb = useGLTF(NPC2_WALK);
-  const idleGlb = useGLTF(NPC2_IDLE);
+  const meshFbx = useLoader(FBXLoader, NPC2_MESH);
+  const walkFbx = useLoader(FBXLoader, NPC2_WALK);
   const selectObject = useGameStore((s) => s.selectObject);
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE, NPC2_SILHOUETTE), []);
   useEffect(() => () => silhouette.dispose(), [silhouette]);
-  const bones = useRef<PoseBones>({});
-  const scene = useMemo(() => {
-    const root = cloneSkeleton(walkGlb.scene) as THREE.Object3D;
+  const { scene, modelScale } = useMemo(() => {
+    const root = cloneSkeleton(meshFbx) as THREE.Object3D;
     root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
     applyCharacterSilhouette(root, CHARACTER_RENDER_MODE, silhouette);
-    bones.current = grabPoseBones(root);
-    return root;
-  }, [walkGlb.scene, silhouette]);
-  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(idleGlb, 'idle', true)].filter(Boolean) as THREE.AnimationClip[], [walkGlb, idleGlb]);
+    return { scene: root, modelScale: heightScale(root, NPC2_TARGET_HEIGHT) };
+  }, [meshFbx, silhouette]);
+  // idle is native to the mesh file (root kept); walk is lifted from a different-axis export, so its root
+  // is dropped to keep the body upright while the legs stride.
+  const clips = useMemo(() => [fbxPick(meshFbx, 'idle'), fbxPick(walkFbx, 'walk', false, true)].filter(Boolean) as THREE.AnimationClip[], [meshFbx, walkFbx]);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
@@ -1119,17 +1211,18 @@ function Npc2Model() {
     }
   });
   return <group ref={group} onClick={(event) => { event.stopPropagation(); selectObject('npc2'); }}>
-    <group scale={NPC2_SCALE}><primitive object={scene} /></group>
+    <group scale={modelScale}><primitive object={scene} /></group>
   </group>;
 }
-useGLTF.preload(NPC2_WALK); useGLTF.preload(NPC2_IDLE);
+useLoader.preload(FBXLoader, NPC2_MESH); useLoader.preload(FBXLoader, NPC2_WALK);
 
 /** NPC2 = Tom. Mounts only while visiting; the big Frequency GLB streams in behind the procedural
  *  fallback so it never reverts to the old geometry once loaded. */
 function Npc2() {
   const active = useGameStore((state) => state.npc2Active);
   if (!active) return null;
-  return <Suspense fallback={<Npc2Procedural />}><Npc2Model /></Suspense>;
+  // Tom is always the Frequency GLB; avoid a visual model swap while the asset streams in.
+  return <Suspense fallback={null}><Npc2Model /></Suspense>;
 }
 
 // Soft contact shadows so floor furniture reads as planted, not floating. One shared radial-gradient
@@ -1192,7 +1285,7 @@ function RoomObject({ object }: { object: StudioObject }) {
   // pieces stay put (they anchor flush to the wall), and the doors are already sized to the characters.
   // The desk, instrument table and the gear on them grow only in footprint (X/Z) — their HEIGHT stays so
   // a seated player can still rest arms on the desk; everything else scales uniformly.
-  const scaled = !object.wall && object.id !== 'entrance';
+  const scaled = !object.wall && object.id !== 'entrance' && object.id !== 'ukulele'; // ukulele keeps its authored size
   const worktop = object.id === 'musicDesk' || object.id === 'instrumentTable' || DESKTOP_IDS.has(object.id) || TABLE_IDS.has(object.id);
   const furnScale: [number, number, number] = !scaled ? [1, 1, 1] : worktop ? [FURNITURE_SCALE, 1, FURNITURE_SCALE] : [FURNITURE_SCALE, FURNITURE_SCALE, FURNITURE_SCALE];
   const shadowMul = scaled ? FURNITURE_SCALE : 1;

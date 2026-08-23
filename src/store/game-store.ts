@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { interactionById } from '@/data/interactions';
-import { STUDIO_OBJECTS } from '@/data/studio-layout';
+import { STUDIO_OBJECTS, CHAIR_SIT_ANCHOR, BED_LIE_ANCHOR, SYNTH_PERFORMANCE_ANCHOR, NPC1_IDLE_SPOTS, UKULELE_ANCHOR } from '@/data/studio-layout';
 import { crystalState, emotionalNeedDrift, INITIAL_EMOTIONAL_GRAPH, resolveEmotionGraph, weightedEmotionalScore } from '@/game/simulation/emotionalGraph';
 import type { CrystalState, EmotionalEffect, Ending, EmotionalGraphState, FriendActivity, GamePhase, GameSnapshot, Interaction, NeedChange, ProducerNeeds, WeatherKind } from '@/types/game';
 
@@ -40,6 +40,10 @@ type GameState = GameSnapshot & {
   visitorPhase: VisitorPhase;
   visitorPos: Point;
   visitorLeaveAt: number;
+  visitorTarget: Point;
+  visitorPauseUntil: number;
+  playingUkulele: boolean;
+  ukuleleUntil: number;
   weather: WeatherKind;
   weatherMinutes: number;
   friendMenuOpen: boolean;
@@ -135,14 +139,21 @@ const clampToRoom = (p: Point): Point => ({ x: Math.max(70, Math.min(1240, p.x))
 // (and, on the other floors, right up to the elevator) instead of being stopped short of the trigger.
 const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'closet']);
 const PLAYER_RADIUS = 14;
-const COLLIDER_INSET = 16;
+const COLLIDER_INSET = 10;
+// Floor furniture is drawn ~1.4× larger than its layout footprint (FURNITURE_SCALE in the renderer), so
+// its collider is grown to match — otherwise characters walk through the visibly larger furniture. Wall
+// pieces aren't scaled, so they keep their footprint.
+const FURNITURE_COLLISION_SCALE = 1.4;
 const isBlocked = (p: Point, radius = PLAYER_RADIUS) => STUDIO_OBJECTS.some((object) => {
   if (!COLLIDER_IDS.has(object.id)) return false;
-  const inset = Math.min(COLLIDER_INSET, Math.min(object.width, object.height) * 0.22);
-  const left = object.x + inset - radius;
-  const right = object.x + object.width - inset + radius;
-  const top = object.y + inset - radius;
-  const bottom = object.y + object.height - inset + radius;
+  const s = object.wall ? 1 : FURNITURE_COLLISION_SCALE;
+  const cx = object.x + object.width / 2, cy = object.y + object.height / 2;
+  const hw = (object.width * s) / 2, hh = (object.height * s) / 2;
+  const inset = Math.min(COLLIDER_INSET, Math.min(hw, hh) * 0.22); // small tolerance so interaction stays comfortable
+  const left = cx - hw + inset - radius;
+  const right = cx + hw - inset + radius;
+  const top = cy - hh + inset - radius;
+  const bottom = cy + hh - inset + radius;
   return p.x > left && p.x < right && p.y > top && p.y < bottom;
 });
 const collisionSafeStep = (from: Point, desired: Point) => {
@@ -175,13 +186,23 @@ const nearestObjectId = (p: Point): string | undefined =>
     return distance < best.distance ? { id: object.id, distance } : best;
   }, { distance: SELECT_RADIUS }).id;
 
+/** NPC1's next idle destination: mostly home (the synth), occasionally a safe open-floor spot — the small,
+ *  infrequent wander. Blocked spots (inside furniture) are skipped so Path never walks into geometry. */
+const pickVisitorSpot = (from: Point): Point => {
+  if (Math.random() < 0.55) return SYNTH_PERFORMANCE_ANCHOR; // home base, most of the time
+  const spots = NPC1_IDLE_SPOTS.filter((p) => !isBlocked(p) && Math.hypot(p.x - from.x, p.y - from.y) > 60);
+  return spots.length ? spots[Math.floor(Math.random() * spots.length)] : SYNTH_PERFORMANCE_ANCHOR;
+};
+
 /** Where the producer sits / lies when using the chair / bed. */
 const centerOf = (id: string, fallback: Point): Point => {
   const object = STUDIO_OBJECTS.find((o) => o.id === id);
   return object ? { x: object.x + object.width / 2, y: object.y + object.height / 2 } : fallback;
 };
-const SIT_POSITION = centerOf('chair', { x: 640, y: 510 });
-const LIE_POSITION = centerOf('bed', { x: 950, y: 300 });
+// Sit / lie snap points come from the object-relative anchors (studio-layout.ts), so moving the chair or
+// bed moves where the producer sits / lies automatically.
+const SIT_POSITION = CHAIR_SIT_ANCHOR;
+const LIE_POSITION = BED_LIE_ANCHOR;
 const ENTRANCE_POSITION = centerOf('entrance', { x: 256, y: 768 });
 
 /** Every musical instrument (incl. the lyric notebook) must be used before the album can be finished (see docs). */
@@ -300,6 +321,12 @@ const initialSession = () => ({
   visitorPhase: 'arriving' as VisitorPhase,
   visitorPos: { x: 256, y: 768 } as Point,
   visitorLeaveAt: 0,
+  // NPC1 wander: where Path is currently headed while idling, and when its current pause ends.
+  visitorTarget: { ...SYNTH_PERFORMANCE_ANCHOR } as Point,
+  visitorPauseUntil: 0,
+  // The producer is holding + playing the ukulele until this elapsedMs (one-shot performance).
+  playingUkulele: false,
+  ukuleleUntil: 0,
   weather: 'clear' as WeatherKind,
   weatherMinutes: 0,
   friendMenuOpen: false,
@@ -484,7 +511,13 @@ export const useGameStore = create<GameState>((set) => ({
     let needs = applyNeedChange(state.needs, Object.fromEntries(Object.entries(decayPerGameMinute).map(([key, value]) => [key, -value * gameMinutes])));
     const weatherMinutes = state.weatherMinutes + gameMinutes;
     const weatherChanged = weatherMinutes >= 180;
-    const weatherKinds: WeatherKind[] = ['clear', 'rain', 'rainbow', 'hail'];
+    // Weighted toward sunny skies: clear 72%, rain 16%, rainbow 8%, hail 4%.
+    const weatherKinds: WeatherKind[] = [
+      'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear', 'clear',
+      'rain', 'rain', 'rain', 'rain',
+      'rainbow', 'rainbow',
+      'hail',
+    ];
     const weather = weatherChanged ? weatherKinds[Math.floor(Math.random() * weatherKinds.length)] : state.weather;
     const badWeather = weather === 'rain' || weather === 'hail';
     if (badWeather) needs = applyNeedChange(needs, { energy: -(weather === 'hail' ? 0.13 : 0.07) * gameMinutes });
@@ -540,6 +573,8 @@ export const useGameStore = create<GameState>((set) => ({
       friendActivity: state.friendActivityMinutes <= gameMinutes ? null : state.friendActivity,
       friendActivityMinutes: Math.max(0, state.friendActivityMinutes - gameMinutes),
       npc2Active: state.npc2Active && state.elapsedMs < state.npc2LeaveAt,
+      // The one-shot ukulele performance ends on its timer; the prop returns to its spot beside the bed.
+      playingUkulele: state.playingUkulele && elapsedMs < state.ukuleleUntil,
       workingOnMusic: state.friendActivity === 'tune' && state.friendActivityMinutes <= gameMinutes ? false : state.workingOnMusic,
       ...thoughtFrame,
       ...elevatorFrame,
@@ -639,6 +674,12 @@ export const useGameStore = create<GameState>((set) => ({
     if (interaction.action === 'phone-bed') {
       return { prompt: PHONE_PROMPT, seated: false, lyingDown: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
     }
+    if (interaction.action === 'ukulele') {
+      // Pick up the ukulele where the producer is standing and play a single one-shot performance; the
+      // renderer attaches the prop to the hand + strums, and `tick` returns it to the bedside on the timer.
+      return { playingUkulele: true, ukuleleUntil: state.elapsedMs + 4600, seated: false, lyingDown: false, scrolling: false, moveTarget: null,
+        needs: applyNeedChange(state.needs, interaction.changes), stress: clamp(state.stress + (interaction.stressDelta ?? 0)), lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+    }
     if (interaction.action === 'window') {
       const windowOpen = !state.windowOpen;
       return { windowOpen, seated: false, lyingDown: false, scrolling: false,
@@ -690,22 +731,28 @@ export const useGameStore = create<GameState>((set) => ({
   stepVisitor: (deltaMs) => set((state) => {
     if (!state.visitorActive || state.phase !== 'playing') return state;
     const step = 320 * (deltaMs / 1000);
-    // Head for the player while visiting, back to the entrance when leaving.
+    // Head for the player during a seated activity, back to the entrance when leaving, else the current
+    // wander target (home base = the synth performance anchor, in FRONT of the rack — never inside it).
     const goingHome = state.visitorPhase === 'leaving';
-    const target = goingHome ? ENTRANCE_POSITION : state.friendActivity ? { x: state.playerPosition.x - 95, y: state.playerPosition.y + 10 } : centerOf('modularSynths', { x: 320, y: 277 });
+    const target = goingHome ? ENTRANCE_POSITION
+      : state.friendActivity ? { x: state.playerPosition.x - 95, y: state.playerPosition.y + 10 }
+      : state.visitorTarget;
     const dx = target.x - state.visitorPos.x;
     const dy = target.y - state.visitorPos.y;
-    const dist = Math.hypot(dx, dy);
+    const dist = Math.hypot(dx, dy) || 1;
     if (state.visitorPhase === 'arriving' && dist <= 70) {
-      // Arrived: a big one-time social boost.
-      return { visitorPhase: 'staying' as VisitorPhase, needs: applyNeedChange(state.needs, { social: 45, love: 6 }), stress: clamp(state.stress - 12) };
+      // Arrived: a big one-time social boost; settle at the synth first.
+      return { visitorPhase: 'staying' as VisitorPhase, needs: applyNeedChange(state.needs, { social: 45, love: 6 }), stress: clamp(state.stress - 12), visitorTarget: { ...SYNTH_PERFORMANCE_ANCHOR }, visitorPauseUntil: state.elapsedMs + 4000 };
     }
     if (state.visitorPhase === 'staying') {
       if (state.elapsedMs >= state.visitorLeaveAt) return { visitorPhase: 'leaving' as VisitorPhase };
-      // NPC 1's default idle is to walk to the modular rack and work there.
-      // Once there, keep the small social benefit without constantly chasing
-      // the player around the room.
-      if (state.friendActivity || dist <= 45) return { needs: applyNeedChange(state.needs, { social: 0.4 * (deltaMs / 1000) }) };
+      // A scripted seated activity takes over — don't wander during it.
+      if (state.friendActivity) return { needs: applyNeedChange(state.needs, { social: 0.4 * (deltaMs / 1000) }) };
+      // Reached the current idle spot: linger, then occasionally choose a new destination (subtle wander).
+      if (dist <= 40) {
+        if (state.elapsedMs < state.visitorPauseUntil) return { needs: applyNeedChange(state.needs, { social: 0.3 * (deltaMs / 1000) }) };
+        return { visitorTarget: pickVisitorSpot(state.visitorPos), visitorPauseUntil: state.elapsedMs + 5000 + Math.random() * 7000, needs: applyNeedChange(state.needs, { social: 0.3 * (deltaMs / 1000) }) };
+      }
     }
     if (goingHome && dist <= 40) return { visitorActive: false }; // out the door
     const visitorPos = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step };

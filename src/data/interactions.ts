@@ -48,6 +48,7 @@ export const INTERACTIONS: Interaction[] = [
   { id: 'bathroom', label: 'Bathroom door', description: 'Take a long shower and reset.', changes: { hygiene: 30, energy: -3, creativity: 2 }, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'hope', direction: 'up' }] },
   { id: 'entrance', label: 'Studio door', description: 'The red door out to the hallway.', changes: {}, action: 'entrance', emotionalEffects: [] },
   { id: 'closet', label: 'Closet', description: 'Choose clothes that make leaving possible.', changes: { hygiene: 3, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
+  { id: 'ukulele', label: 'Ukulele', description: 'Pick it up and strum a small, bright tune.', changes: { creativity: 6, love: 3, energy: -1 }, action: 'ukulele', stressDelta: -6, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
 ];
 
 export const interactionById = Object.fromEntries(INTERACTIONS.map((item) => [item.id, item]));

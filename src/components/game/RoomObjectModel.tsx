@@ -279,8 +279,11 @@ const BED_WOOD = '#7a5a41';
  * two pillows, and a pastel-pink duvet with green stripes folded back over the foot.
  * The head of the bed is at −x, matching where the producer's head rests when lying down.
  */
+// The bed is modelled ~2.34 long, but the lying character reads ~2.9 units head-to-foot, so the frame
+// is stretched along its length axis (local X, head at −x) to seat the whole body on the mattress.
+const BED_LENGTH_SCALE = 1.36;
 function Bed() {
-  return <group>
+  return <group scale={[BED_LENGTH_SCALE, 1, 1]}>
     {/* Frame and legs. */}
     <mesh position={[0, 0.3, 0]} castShadow receiveShadow><boxGeometry args={[2.34, 0.22, 1.72]} /><meshStandardMaterial color={BED_WOOD} roughness={0.75} /></mesh>
     {[[-1.05, -0.72], [1.05, -0.72], [-1.05, 0.72], [1.05, 0.72]].map(([lx, lz], i) => (
@@ -315,6 +318,21 @@ function Bed() {
     {[-0.36, 0.36].map((pz) => (
       <mesh key={`s${pz}`} position={[-0.82, 0.775, pz]}><boxGeometry args={[0.5, 0.005, 0.16]} /><meshStandardMaterial color={BEDDING_GREEN} roughness={0.95} /></mesh>
     ))}
+  </group>;
+}
+
+/** The bedside ukulele (interactive prop). Leaning upright; hidden while the player is holding + playing
+ *  it (the hand-attached copy takes over in ThreeStudio) so there's never a duplicate on the floor. */
+function UkuleleModel() {
+  const playing = useGameStore((s) => s.playingUkulele);
+  if (playing) return null;
+  return <group rotation={[0, 0, 0.16]}>
+    {/* body */}
+    <mesh position={[0, 0.42, 0]} scale={[1, 1.25, 0.42]} castShadow><sphereGeometry args={[0.24, 16, 12]} /><meshStandardMaterial color="#c68a4e" roughness={0.5} /></mesh>
+    <mesh position={[0, 0.46, 0.1]}><circleGeometry args={[0.07, 16]} /><meshStandardMaterial color="#3a2416" /></mesh>
+    {/* neck + head */}
+    <mesh position={[0, 0.92, 0]} castShadow><boxGeometry args={[0.07, 0.62, 0.05]} /><meshStandardMaterial color="#7a5a41" roughness={0.6} /></mesh>
+    <mesh position={[0, 1.26, 0.01]} rotation={[0.18, 0, 0]} castShadow><boxGeometry args={[0.1, 0.16, 0.04]} /><meshStandardMaterial color="#2a1c12" /></mesh>
   </group>;
 }
 
@@ -493,6 +511,7 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
 
     case 'bathroom': return <Door color="#456473" />;
     case 'entrance': return <EntranceDoor />;
+    case 'ukulele': return <UkuleleModel />;
     case 'closet': return <SlidingCloset />;
 
     case 'cables': return <group>

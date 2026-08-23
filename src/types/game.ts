@@ -32,7 +32,7 @@ export type Interaction = {
   label: string;
   description: string;
   changes: NeedChange;
-  action?: 'open-daw' | 'open-anime' | 'sit' | 'lie' | 'fridge' | 'window' | 'phone-bed' | 'entrance';
+  action?: 'open-daw' | 'open-anime' | 'sit' | 'lie' | 'fridge' | 'window' | 'phone-bed' | 'entrance' | 'ukulele';
   emotionalEffects?: EmotionalEffect[];
   inspirationMinutes?: number;
   /** Change to the stress gauge, applied on interact (negative = relief). */

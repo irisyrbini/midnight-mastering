@@ -19,18 +19,17 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'posters4', x: 312, y: 84, width: 100, height: 78, color: '#4a3550', wall: 'back' },
   { id: 'ledLights', x: 680, y: 62, width: 360, height: 22, color: '#b73545', shape: 'light', wall: 'back' },
   { id: 'shelves', x: 1040, y: 106, width: 112, height: 154, color: '#5e5560', wall: 'back' },
-  { id: 'instrumentTable', x: 200, y: 250, width: 250, height: 180, color: '#5a4a4c' },
-  { id: 'modularSynths', x: 238, y: 225, width: 170, height: 105, color: '#61455a' },
+  { id: 'instrumentTable', x: 60, y: 250, width: 250, height: 180, color: '#5a4a4c' },
+  { id: 'modularSynths', x: 98, y: 225, width: 170, height: 105, color: '#61455a' },
   { id: 'musicDesk', x: 492, y: 202, width: 350, height: 160, color: '#6c5b5c' },
   { id: 'chair', x: 604, y: 430, width: 90, height: 100, color: '#20242c' },
   { id: 'friendChair', x: 704, y: 430, width: 90, height: 100, color: '#292d36' },
   { id: 'dualMonitors', x: 586, y: 185, width: 155, height: 54, color: '#3d7480' },
   { id: 'mic', x: 484, y: 300, width: 46, height: 46, color: '#20242c' },
-  { id: 'phone', x: 609, y: 304, width: 40, height: 62, color: '#0c0e14' },
   { id: 'laptop', x: 626, y: 270, width: 92, height: 58, color: '#54728c' },
   { id: 'studioMonitors', x: 603, y: 180, width: 120, height: 60, color: '#d9d9d0' },
-  { id: 'portasound', x: 215, y: 342, width: 154, height: 55, color: '#d8c6a4' },
-  { id: 'sk5', x: 377, y: 348, width: 100, height: 48, color: '#aeb2b3' },
+  { id: 'portasound', x: 75, y: 342, width: 154, height: 55, color: '#d8c6a4' },
+  { id: 'sk5', x: 237, y: 348, width: 100, height: 48, color: '#aeb2b3' },
   { id: 'audioInterface', x: 752, y: 267, width: 54, height: 44, color: '#b73545' },
   { id: 'mechanicalKeyboard', x: 595, y: 358, width: 112, height: 30, color: '#20242c' },
   { id: 'mouse', x: 701, y: 359, width: 30, height: 28, color: '#343b48' },
@@ -45,10 +44,71 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'switch', x: 526, y: 422, width: 76, height: 42, color: '#5d7a86' },
   { id: 'acousticGuitar', x: 280, y: 462, width: 62, height: 156, color: '#ba8653', shape: 'guitar' },
   { id: 'electricGuitar', x: 362, y: 464, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
-  { id: 'bed', x: 1010, y: 305, width: 218, height: 168, color: '#54667d', rotationY: Math.PI / 2 },
-  { id: 'bedPhone', x: 1075, y: 335, width: 34, height: 54, color: '#0c0e14' },
-  { id: 'miniFridge', x: 921, y: 111, width: 86, height: 132, color: '#a8aeb6' },
+  { id: 'bed', x: 1075, y: 305, width: 218, height: 168, color: '#54667d', rotationY: Math.PI / 2 },
+  { id: 'bedPhone', x: 1140, y: 335, width: 34, height: 54, color: '#0c0e14' },
+  // Pushed up against the back wall (low y) and clear of the bed, which moved right.
+  { id: 'miniFridge', x: 982, y: 55, width: 86, height: 132, color: '#a8aeb6' },
+  // A stylised ukulele leaning beside the bed — interactive (picked up + played). Not a collider.
+  { id: 'ukulele', x: 975, y: 545, width: 50, height: 74, color: '#c68a4e' },
   { id: 'bathroom', x: 1192, y: 610, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
-  { id: 'entrance', x: 200, y: 730, width: 112, height: 76, color: '#b73545' },
+  // Studio exit door mounted flat against the LEFT wall (rotated a quarter turn), out of the open floor.
+  { id: 'entrance', x: -78, y: 430, width: 112, height: 76, color: '#b73545', rotationY: Math.PI / 2 },
   { id: 'closet', x: 1205, y: 380, width: 94, height: 162, color: '#465164', rotationY: -Math.PI / 2, wall: 'right' },
+];
+
+// ── Object-relative interaction anchors ────────────────────────────────────────────────────────────
+// One source of truth for where a character stands / snaps to use a piece of furniture, DERIVED from that
+// furniture's layout transform. Move the furniture above and its anchor moves with it — no interaction
+// coordinate is duplicated at an old position. Floor furniture is drawn ~1.4× its footprint (see
+// FURNITURE_SCALE / FURNITURE_COLLISION_SCALE), so "front of" anchors clear that enlarged footprint.
+export type Point = { x: number; y: number };
+export const FOOTPRINT_SCALE = 1.4; // must match FURNITURE_SCALE (renderer) / FURNITURE_COLLISION_SCALE (store)
+
+export const objectById = (id: string): StudioObject | undefined => STUDIO_OBJECTS.find((o) => o.id === id);
+
+/** Centre of an object's footprint, in logical room coords. */
+export const objectCenter = (id: string, fallback: Point = { x: 640, y: 510 }): Point => {
+  const o = objectById(id);
+  return o ? { x: o.x + o.width / 2, y: o.y + o.height / 2 } : fallback;
+};
+
+/** A standing anchor just beyond an object's FRONT (+y, room-facing) edge, clear of its scaled footprint. */
+export const frontAnchor = (id: string, gap = 34, fallback: Point = { x: 640, y: 560 }): Point => {
+  const o = objectById(id);
+  if (!o) return fallback;
+  const cx = o.x + o.width / 2;
+  const front = o.y + o.height / 2 + (o.height * FOOTPRINT_SCALE) / 2; // scaled front edge
+  return { x: cx, y: front + gap };
+};
+
+// The chair the producer sits in / the bed they lie on: the body snaps to the object centre, and the
+// renderer places the GLB pose on top (see chairSit / bedLie root offsets in ThreeStudio).
+export const CHAIR_SIT_ANCHOR = objectCenter('chair');
+export const BED_LIE_ANCHOR = objectCenter('bed');
+export const ENTRANCE_ANCHOR = objectCenter('entrance');
+
+// Modular synth performance: NPC1 stands IN FRONT of the instrument table (never inside it) aligned to the
+// synth, and faces the synth controls. Derived from the (moved) table + synth, so it follows them.
+export const SYNTH_CENTER = objectCenter('modularSynths', { x: 183, y: 277 });
+export const SYNTH_PERFORMANCE_ANCHOR: Point = (() => {
+  const table = objectById('instrumentTable');
+  return {
+    x: SYNTH_CENTER.x,
+    y: table ? table.y + table.height / 2 + (table.height * FOOTPRINT_SCALE) / 2 + 40 : 500,
+  };
+})();
+
+// The ukulele beside the bed: the player walks to it to pick it up.
+export const UKULELE_ANCHOR = objectCenter('ukulele', { x: 1000, y: 575 });
+
+/** A small set of safe idle spots NPC1 can wander between (home base = the synth). Consumers should still
+ *  collision-check before using one, so a spot that lands in furniture is simply skipped. */
+// All spots sit in the OPEN FRONT floor (y ≳ 520), so straight-line walks between them stay clear of the
+// back-wall furniture and the guitars; consumers still collision-check before using one.
+export const NPC1_IDLE_SPOTS: Point[] = [
+  SYNTH_PERFORMANCE_ANCHOR,          // home: at the modular synth
+  { x: 470, y: 655 },                // open floor, front-centre-left (clear of the guitars)
+  frontAnchor('musicDesk', 90),      // in front of the main desk
+  { x: 820, y: 585 },                // open centre-right floor
+  { x: 980, y: 640 },                // near the bed (in front of it)
 ];
