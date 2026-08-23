@@ -611,17 +611,20 @@ const GLB_SIT = '/models/sit.glb'; // Step_to_Sit_Transition (plays once, holds 
 const GLB_LIE = '/models/lie.glb'; // Knock_Down (plays once, holds the lying end pose)
 // Interaction poses, re-exported as FBX (the GLB versions had their motion stuck on an unusable rigify
 // track). These carry real motion on the Armature bones, so they drive Jonny's seated / lying activities:
-const FBX_TUNE = '/models/maketune.fbx'; // Make-a-Tune (seated at the desk, working on music)
-const FBX_DRINK = '/models/drink.fbx'; // Drink Vodka (seated)
-const FBX_SCROLL = '/models/scroll.fbx'; // Doomscroll (lying, thumbing the phone)
+// NOTE: the maketune/drink/scroll FBX clips are authored on a rig whose Hips rest doesn't map onto this
+// GLB player skeleton (they render displaced/invisible), so seated/lying activities use the GLB sit/lie
+// poses + FX overlays instead. Only the ukulele performance FBX binds cleanly (quaternion-only, standing).
 const FBX_UKULELE = '/models/ukulele.fbx'; // Ukulele performance (standing, strumming)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
 // Root placement for the real seated / lying clips (the clip poses the body; we only place the root).
 // Raised to meet the enlarged (FURNITURE_SCALE) chair seat and mattress.
-const SEAT_ROOT_Y = 0.22; // meet the taller chair seat
+// Per-pose seat height: the GLB `sit` clip and the FBX `tune`/`drink` clips lower the pelvis to DIFFERENT
+// heights, so each gets its own root Y to land the butt on the chair seat (~0.84 world) with feet ~on the
+// floor. Tuned by eye against the current chair + character scale.
+const SEAT_ROOT_Y = 0.06; // GLB sit clip — lands the butt on the chair seat (tuned by eye)
 const SEAT_ROOT_Z = -0.1; // settle back into the chair
-const LIE_ROOT_Y = 0.9; // lift onto the (taller) mattress surface
+const LIE_ROOT_Y = 0.72; // rest on the mattress surface
 const LIE_ROOT_Z = -0.2; // slide toward the pillow
 const LIE_YAW = Math.PI / 2; // align the lying body along the bed (head toward −x)
 
@@ -669,33 +672,49 @@ function pickClip(g: { animations: THREE.AnimationClip[] }, name: string, basePo
 //    character by bone name. We keep ONLY the quaternion tracks: rotation is unit-agnostic (a clip authored
 //    in centimetres poses a metre-scaled mesh correctly) and dropping the position/scale tracks removes the
 //    cm-scale root drift — the sim places the root itself. ──
-function fbxRotationClip(src: THREE.AnimationClip | undefined, name: string, dropRoot = false, keepPosition = false): THREE.AnimationClip | undefined {
+function fbxRotationClip(src: THREE.AnimationClip | undefined, name: string, dropRoot = false, keepPosition = false, posScale = 1): THREE.AnimationClip | undefined {
   if (!src) return undefined;
   const c = src.clone();
-  // Keep rotation (and, for metre-scale clips, `keepPosition` also keeps the Hips/limb TRANSLATION so a
-  // seated pose actually lowers the pelvis onto the seat instead of bending at standing hip height). Scale
-  // tracks are always dropped. `dropRoot` also drops the Hips (root) track: when a clip is lifted from a
-  // file whose export up-axis differs from the target mesh the root world-orientation flips the body, but
-  // the per-limb rotations (relative to the root) are shared across the same rig, so dropping the root
-  // leaves the body at the mesh's upright bind while the limbs still animate.
+  // Keep rotation (and, for a seated/lying pose, `keepPosition` also keeps the bone TRANSLATION so the
+  // pelvis actually lowers onto the seat instead of bending at standing hip height). Scale tracks are
+  // always dropped. `dropRoot` drops the Hips (root) track for clips lifted from a different-axis export.
+  // `posScale` rescales the position VALUES: these FBX clips store translation in CENTIMETRES, but they're
+  // bound to the metre-scale GLB skeleton, so they must be scaled by 0.01 or the hips fly ~100 units up.
   c.tracks = c.tracks.filter((t) => {
     if (dropRoot && /^Hips\./.test(t.name)) return false;
     if (/\.quaternion$/.test(t.name)) return true;
-    if (keepPosition && /\.position$/.test(t.name)) return true;
+    // Keep ONLY the Hips (root) translation — never other bones' positions, whose FBX bone-lengths would
+    // distort the GLB skeleton. The quaternions pose the limbs; this just drops the pelvis onto the seat.
+    if (keepPosition && /^Hips\.position$/.test(t.name)) return true;
     return false;
   });
+  if (keepPosition && posScale !== 1) {
+    for (const t of c.tracks) {
+      if (/^Hips\.position$/.test(t.name)) { const v = t.values; for (let i = 0; i < v.length; i += 1) v[i] *= posScale; }
+    }
+  }
   c.name = name;
   return c;
 }
 /** Pick the meaningful clip from an FBX group: the one carrying motion (skip the 0.07s `clip0` base pose
  *  unless `basePose` explicitly wants that static standing pose), then reduce its tracks. */
-function fbxPick(g: { animations: THREE.AnimationClip[] }, name: string, basePose = false, dropRoot = false, keepPosition = false): THREE.AnimationClip | undefined {
+function fbxPick(g: { animations: THREE.AnimationClip[] }, name: string, basePose = false, dropRoot = false, keepPosition = false, posScale = 1): THREE.AnimationClip | undefined {
   const anims = g.animations ?? [];
   const src = basePose
     ? (anims.find((a) => /clip0|baselayer/i.test(a.name)) ?? anims[0])
     : (anims.find((a) => !/clip0/i.test(a.name)) ?? anims[0]);
-  return fbxRotationClip(src, name, dropRoot, keepPosition);
+  return fbxRotationClip(src, name, dropRoot, keepPosition, posScale);
 }
+/** Anchor an in-place pose (sit / lie / tune / drink): zero the Hips (root) X and Z translation so the clip
+ *  no longer walks the body FORWARD off the chair/bed spot (Step-to-Sit etc. bake a step-in), while keeping
+ *  the Hips Y so the pelvis still drops onto the seat. The sim already places the root at the chair/bed. */
+function anchorHipsInPlace(clip: THREE.AnimationClip | undefined): THREE.AnimationClip | undefined {
+  if (!clip) return clip;
+  const t = clip.tracks.find((tr) => /Hips\.position$/.test(tr.name));
+  if (t) { const v = t.values; for (let i = 0; i < v.length; i += 3) { v[i] = 0; v[i + 2] = 0; } }
+  return clip;
+}
+
 /** Scale factor that makes `root` stand `targetHeight` world units tall, whatever units the source used
  *  (FBX often imports in centimetres). Measured from the world-space bounding box after cloning. */
 function heightScale(root: THREE.Object3D, targetHeight: number): number {
@@ -735,9 +754,6 @@ function PlayerModel() {
   const sit = useGLTF(GLB_SIT);
   const lie = useGLTF(GLB_LIE);
   // Interaction poses (FBX): real motion on the Armature bones, bound by bone name to the GLB skeleton.
-  const tuneFbx = useLoader(FBXLoader, FBX_TUNE);
-  const drinkFbx = useLoader(FBXLoader, FBX_DRINK);
-  const scrollFbx = useLoader(FBXLoader, FBX_SCROLL);
   const ukuleleFbx = useLoader(FBXLoader, FBX_UKULELE);
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
@@ -765,11 +781,11 @@ function PlayerModel() {
     return () => { hand.remove(handUke); };
   }, [playingUkulele, scene, handUke]);
   const clips = useMemo(() => [
-    pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'), pickClip(sit, 'sit'), pickClip(lie, 'lie'),
-    // tune/drink are SEATED: keep position so the pelvis lowers onto the seat. scroll is placed by LIE_ROOT.
-    fbxPick(tuneFbx, 'tune', false, false, true), fbxPick(drinkFbx, 'drink', false, false, true), fbxPick(scrollFbx, 'scroll'),
+    pickClip(idle, 'idle', true), pickClip(walk, 'walk'), pickClip(run, 'run'),
+    // sit/lie (GLB) bake a step-in walk into the root — anchor them in place so the body stays on the chair/bed.
+    anchorHipsInPlace(pickClip(sit, 'sit')), anchorHipsInPlace(pickClip(lie, 'lie')),
     fbxPick(ukuleleFbx, 'ukulele'), // standing strum performance (quaternion-only, upright)
-  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, tuneFbx, drinkFbx, scrollFbx, ukuleleFbx]);
+  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, ukuleleFbx]);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
@@ -783,14 +799,13 @@ function PlayerModel() {
     const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
     const moving = !seated && !lying && Math.hypot(dx, dz) > 0.0015;
     const ease = Math.min(1, dt * 10);
-    // Clip per state: walk/run travelling; seated → make-a-tune / drink-vodka / plain sit; lying →
-    // doomscroll / sleep; else idle. All real clips — the mixer poses the whole body.
+    // Clip per state. All SEATED activities (plain sit / make-a-tune / drink-vodka) use the GLB `sit` pose,
+    // which reliably seats the body ON the chair; the make-tune/drink FBX clips are authored on a rig whose
+    // Hips rest doesn't map onto this GLB skeleton (they render displaced/invisible), so seated activities
+    // are differentiated by their FX/prop overlays instead. Lying (sleep / doomscroll) uses the GLB `lie`.
     const want = moving ? (s.running ? 'run' : 'walk')
       : s.playingUkulele ? 'ukulele' // standing strum performance (ukulele.fbx)
-      : (lying && s.scrolling) ? 'scroll'
       : lying ? 'lie'
-      : (seated && s.workingOnMusic) ? 'tune'
-      : (seated && s.lastInteraction?.id === 'vodka') ? 'drink'
       : seated ? 'sit'
       : 'idle';
     if (want !== c.clip) {
@@ -827,7 +842,7 @@ function PlayerModel() {
 }
 useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
 useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE);
-useLoader.preload(FBXLoader, FBX_TUNE); useLoader.preload(FBXLoader, FBX_DRINK); useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_UKULELE);
+useLoader.preload(FBXLoader, FBX_UKULELE);
 
 /** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
  *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only
