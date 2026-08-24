@@ -49,7 +49,6 @@ export const INTERACTIONS: Interaction[] = [
   { id: 'entrance', label: 'Studio door', description: 'The red door out to the hallway.', changes: {}, action: 'entrance', emotionalEffects: [] },
   { id: 'closet', label: 'Closet', description: 'Choose clothes that make leaving possible.', changes: { hygiene: 3, energy: -1 }, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }] },
   { id: 'ukulele', label: 'Ukulele', description: 'Pick it up and strum a small, bright tune.', changes: { creativity: 16, love: 16, energy: -2 }, action: 'ukulele', stressDelta: -22, emotionalEffects: [{ node: 'hope', direction: 'up' }, { node: 'love', direction: 'up' }, { node: 'burnout', direction: 'down' }] },
-  { id: 'beanbag', label: 'Bean bag', description: 'Sink into the bean bag for a minute. Interact again to get up.', changes: {}, action: 'sit', stressDelta: -8, emotionalEffects: [{ node: 'burnout', direction: 'down' }] },
   { id: 'sofa', label: 'Sofa', description: 'Sit back on the sofa. Interact again to get up.', changes: {}, action: 'sit', stressDelta: -8, emotionalEffects: [{ node: 'burnout', direction: 'down' }, { node: 'loneliness', direction: 'down' }] },
 ];
 

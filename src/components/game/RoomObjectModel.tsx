@@ -407,18 +407,6 @@ function UkuleleModel() {
   </group>;
 }
 
-/** A grey bean bag — a squashed rounded mass with a seat dip, perch-height (seat top ≈ 1.0 world) so the
- *  shared sit pose lands on it. Authored at final size (not FURNITURE_SCALE'd). */
-function BeanBag() {
-  return <group>
-    <mesh position={[0, 0.5, 0]} scale={[1, 0.8, 1]} castShadow receiveShadow><sphereGeometry args={[0.9, 20, 16]} /><meshStandardMaterial color="#7b7d84" roughness={0.95} /></mesh>
-    {/* a slumped upper lobe / backrest so it reads as a bean bag, not a ball */}
-    <mesh position={[0, 0.95, -0.32]} scale={[0.92, 0.7, 0.7]} castShadow><sphereGeometry args={[0.7, 18, 14]} /><meshStandardMaterial color="#83858c" roughness={0.95} /></mesh>
-    {/* seat dip */}
-    <mesh position={[0, 0.92, 0.14]} scale={[0.7, 0.35, 0.7]}><sphereGeometry args={[0.6, 16, 12]} /><meshStandardMaterial color="#6c6e75" roughness={0.98} /></mesh>
-  </group>;
-}
-
 /** A three-seater sofa: base + seat cushions + backrest + arms. Seat top ≈ 1.0 world for the shared sit pose. */
 function Sofa() {
   return <group>
@@ -606,7 +594,6 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'bathroom': return <Door color="#456473" />;
     case 'entrance': return <EntranceDoor />;
     case 'ukulele': return <UkuleleModel />;
-    case 'beanbag': return <BeanBag />;
     case 'sofa': return <Sofa />;
     case 'closet': return <SlidingCloset />;
 

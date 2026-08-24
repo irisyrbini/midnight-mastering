@@ -29,13 +29,15 @@ const ROOM_SCALE = 104 / UNITS_PER_WORLD;
 // wall moves with it if the room is resized. The 0.09 is half the 0.18 wall thickness — its inner
 // (room-facing) face.
 const WALL_BACK_INNER_Z = -5 * ROOM_SCALE + 0.09;
-const WALL_RIGHT_INNER_X = 7 * ROOM_SCALE - 0.09;
+const WALL_RIGHT_INNER_X = 9.6 * ROOM_SCALE - 0.09;
+const WALL_LEFT_INNER_X = -8.4 * ROOM_SCALE + 0.17;
 const WALL_GAP = 0.01; // hair of clearance so a mounted object never z-fights the wall
 /** Each wall-mounted model's distance from its own origin to its wall-facing back face. */
 const WALL_MOUNT_DEPTH: Record<string, number> = {
   window: 0.06, window2: 0.06, // frame is 0.12 deep
   posters: 0.025, posters2: 0.025, posters3: 0.025, posters4: 0.025, // thin backing board
   shelves: 0.25, // deep shelf box
+  miniFridge: 0.4,
   ledLights: 0.05,
   closet: 0.39, // sliding wardrobe body sits back from its origin
   bathroom: 0.07, // door frame
@@ -626,9 +628,9 @@ const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tun
 // floor. Tuned by eye against the current chair + character scale.
 const SEAT_ROOT_Y = 0.24; // GLB sit clip — raised to meet the enlarged (CHAIR_SCALE) seat
 const SEAT_ROOT_Z = -0.1; // settle back into the chair
-const LIE_ROOT_Y = 0.72; // rest on the mattress surface
+const LIE_ROOT_Y = 0.60; // root is inside the 1.7× player group; this lands the body on the enlarged mattress
 const LIE_ROOT_Z = 0.2; // slide toward the pillow / headboard end
-const LIE_YAW = Math.PI / 2; // bed head is local -x, rotated to world -z by the bed's +90° layout yaw
+const LIE_YAW = Math.PI / 2; // rotate the lying/doom-scroll body 90° onto the bed's long axis, head toward pillows
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
 //    look we override it at runtime with a matte near-black material so the character reads as a moving
@@ -1223,7 +1225,7 @@ const NPC2_MESH = '/models/bigfreq/idle.fbx'; // redesigned mesh + idle pose (ri
 const NPC2_WALK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx';
 const NPC2_CLAP = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sitting_Clap_withSkin.fbx';
 const NPC2_DRINK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sit_and_Drink_withSkin.fbx';
-const NPC2_SEAT_Y = 0.12; // lift the seated FBX onto the beanbag cushion instead of sinking into a lying pose
+const NPC2_SEAT_Y = 0.12; // lift the seated FBX onto the sofa cushion
 const NPC2_TARGET_HEIGHT = 3.0; // world units — Tom reads a touch taller than Jonny's ~2.89
 const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
 
@@ -1405,6 +1407,9 @@ function RoomObject({ object }: { object: StudioObject }) {
     : object.wall === 'right'
       ? x - (WALL_RIGHT_INNER_X - mountDepth - WALL_GAP)
       : 0;
+  const wallXOffset = object.wall === 'left'
+    ? (WALL_LEFT_INNER_X + mountDepth - WALL_GAP) - x
+    : 0;
   // Point-and-click: first click walks to the object and selects it; clicking the selected object uses it.
   const onSelect = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -1419,14 +1424,14 @@ function RoomObject({ object }: { object: StudioObject }) {
   // pieces stay put (they anchor flush to the wall), and the doors are already sized to the characters.
   // The desk, instrument table and the gear on them grow only in footprint (X/Z) — their HEIGHT stays so
   // a seated player can still rest arms on the desk; everything else scales uniformly.
-  const authoredSize = object.id === 'entrance' || object.id === 'ukulele' || object.id === 'beanbag' || object.id === 'sofa';
+  const authoredSize = object.id === 'entrance' || object.id === 'ukulele' || object.id === 'sofa';
   const scaled = !object.wall && !authoredSize; // these are modelled at final size
   const worktop = object.id === 'musicDesk' || object.id === 'instrumentTable' || DESKTOP_IDS.has(object.id) || TABLE_IDS.has(object.id);
   const isChair = object.id === 'chair' || object.id === 'friendChair';
   const uniform = isChair ? CHAIR_SCALE : FURNITURE_SCALE; // chairs read a touch bigger, sized to the characters
   const furnScale: [number, number, number] = !scaled ? [1, 1, 1] : worktop ? [FURNITURE_SCALE, 1, FURNITURE_SCALE] : [uniform, uniform, uniform];
   const shadowMul = scaled ? FURNITURE_SCALE : 1;
-  return <group position={[x, 0, z]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
+  return <group position={[x + wallXOffset, 0, z]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
     {shadowTex && <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowR * shadowMul, shadowR * shadowMul, 1]}>
       <planeGeometry args={[2, 2]} /><meshBasicMaterial map={shadowTex} transparent depthWrite={false} opacity={0.85} />
     </mesh>}
@@ -1506,13 +1511,13 @@ function Room() {
         flooding the room (kept local via a short distance and low intensity). */}
     <pointLight position={[0, 4.0, 1.4]} intensity={1.6} color="#8fa2c8" distance={7} />
     {/* The room shell scales with the layout so the enlarged studio keeps its proportions and mood. */}
-    <mesh receiveShadow position={[-0.7 * ROOM_SCALE, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[15.4 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
+    <mesh receiveShadow position={[0, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[19.2 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
     {/* Walls are translucent so they never block the view when the camera orbits (depthWrite off = no occlusion). */}
-    <mesh position={[-0.7 * ROOM_SCALE, 3.1, -5 * ROOM_SCALE]}><boxGeometry args={[15.4 * ROOM_SCALE, 6.2, 0.18]} /><meshStandardMaterial color="#243146" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[0, 3.1, -5 * ROOM_SCALE]}><boxGeometry args={[19.2 * ROOM_SCALE, 6.2, 0.18]} /><meshStandardMaterial color="#243146" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[-8.4 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.34, 6.2, 10.2 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     {/* Right wall the closet and the bedside window are mounted against. */}
-    <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
-    <mesh position={[-0.7 * ROOM_SCALE, 6.15, 0]}><boxGeometry args={[15.4 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
+    <mesh position={[9.6 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[0, 6.15, 0]}><boxGeometry args={[19.2 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
     {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;
