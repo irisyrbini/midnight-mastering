@@ -52,9 +52,16 @@ public/models/bigfreq/*
 !public/models/shadow/walk.glb
 !public/models/shadow/sit.glb
 !public/models/shadow/idle.glb
-# NPC2 (Tom = redesigned "Urban Shadow Figure") is now FBX: mesh/idle + walk clip + its textures.
+# NPC2 (Tom = redesigned "Urban Shadow Figure") is now FBX: mesh/idle + walk + seated clips + its textures.
 !public/models/bigfreq/idle.fbx
 !public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sitting_Clap_withSkin.fbx
+!public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sit_and_Drink_withSkin.fbx
+# NPC3 (smallchill guest, phone easter egg): walk + idle GLB (sit reuses the shared /models/sit.glb).
+!public/models/smallchill
+public/models/smallchill/*
+!public/models/smallchill/walking.glb
+!public/models/smallchill/idle.glb
 !public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0.png
 !public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0_normal.png
 !public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_texture_0_roughness.png

@@ -1203,12 +1203,17 @@ function Npc2Procedural() {
 //    is measured at load (heightScale) rather than hand-tuned. ──
 const NPC2_MESH = '/models/bigfreq/idle.fbx'; // redesigned mesh + idle pose (rigify_clip)
 const NPC2_WALK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx';
+const NPC2_CLAP = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sitting_Clap_withSkin.fbx';
+const NPC2_DRINK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sit_and_Drink_withSkin.fbx';
+const NPC2_SEAT_Y = -0.55; // drops the (quaternion-only) seated pose onto the low bean bag — tune by eye
 const NPC2_TARGET_HEIGHT = 3.0; // world units — Tom reads a touch taller than Jonny's ~2.89
 const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
 
 function Npc2Model() {
   const meshFbx = useLoader(FBXLoader, NPC2_MESH);
   const walkFbx = useLoader(FBXLoader, NPC2_WALK);
+  const clapFbx = useLoader(FBXLoader, NPC2_CLAP);
+  const drinkFbx = useLoader(FBXLoader, NPC2_DRINK);
   const selectObject = useGameStore((s) => s.selectObject);
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE, NPC2_SILHOUETTE), []);
   useEffect(() => () => silhouette.dispose(), [silhouette]);
@@ -1218,39 +1223,45 @@ function Npc2Model() {
     applyCharacterSilhouette(root, CHARACTER_RENDER_MODE, silhouette);
     return { scene: root, modelScale: heightScale(root, NPC2_TARGET_HEIGHT) };
   }, [meshFbx, silhouette]);
-  // idle is native to the mesh file (root kept); walk is lifted from a different-axis export, so its root
-  // is dropped to keep the body upright while the legs stride.
-  const clips = useMemo(() => [fbxPick(meshFbx, 'idle'), fbxPick(walkFbx, 'walk', false, true)].filter(Boolean) as THREE.AnimationClip[], [meshFbx, walkFbx]);
+  // idle native (root kept); walk lifted from a different-axis export (root dropped, upright); the two
+  // seated poses (its own rig) are quaternion-only and placed on the bean bag via NPC2_SEAT_Y.
+  const clips = useMemo(() => [fbxPick(meshFbx, 'idle'), fbxPick(walkFbx, 'walk', false, true), fbxPick(clapFbx, 'clap'), fbxPick(drinkFbx, 'drink')].filter(Boolean) as THREE.AnimationClip[], [meshFbx, walkFbx, clapFbx, drinkFbx]);
+  const inner = useRef<THREE.Group>(null);
   const group = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
   useFrame((_, dt) => {
     const s = useGameStore.getState();
-    if (!s.npc2Active || !group.current) return;
+    if (!s.npc2Active || !group.current || !inner.current) return;
     const [x, z] = toWorld(s.npc2Pos.x, s.npc2Pos.y);
     const c = st.current;
     if (!c.ready) { c.x = x; c.z = z; c.ready = true; }
     const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
-    const moving = Math.hypot(dx, dz) > 0.0015;
-    if (moving) {
-      const target = Math.atan2(dx, dz) + MODEL_FORWARD;
-      const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing));
-      c.facing += diff * Math.min(1, dt * 6);
+    const sitting = s.npc2Sitting;
+    const moving = !sitting && Math.hypot(dx, dz) > 0.0015;
+    const ease = Math.min(1, dt * 10);
+    if (sitting) { c.facing += (Math.PI - c.facing) * ease; inner.current.position.set(0, NPC2_SEAT_Y, 0); } // seated, faces the room
+    else {
+      inner.current.position.set(0, 0, 0);
+      if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 6); }
     }
     group.current.position.set(x, 0, z);
     group.current.rotation.y = c.facing;
-    const want = moving ? 'walk' : 'idle';
+    // Random seated pose (clap / drink) chosen by npc2Pose when it sits.
+    const want = sitting ? (s.npc2Pose === 1 ? 'drink' : 'clap') : moving ? 'walk' : 'idle';
     if (want !== c.clip) {
-      if (want) actions[want]?.reset().fadeIn(0.2).play();
       if (c.clip) actions[c.clip]?.fadeOut(0.2);
+      const next = actions[want];
+      if (next) { next.reset(); const once = want === 'clap' || want === 'drink'; next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); next.clampWhenFinished = once; next.fadeIn(0.2).play(); }
       c.clip = want;
     }
   });
   return <group ref={group} onClick={(event) => { event.stopPropagation(); selectObject('npc2'); }}>
-    <group scale={modelScale}><primitive object={scene} /></group>
+    <group ref={inner}><group scale={modelScale}><primitive object={scene} /></group></group>
   </group>;
 }
 useLoader.preload(FBXLoader, NPC2_MESH); useLoader.preload(FBXLoader, NPC2_WALK);
+useLoader.preload(FBXLoader, NPC2_CLAP); useLoader.preload(FBXLoader, NPC2_DRINK);
 
 /** NPC2 = Tom. Mounts only while visiting; the big Frequency GLB streams in behind the procedural
  *  fallback so it never reverts to the old geometry once loaded. */
@@ -1259,6 +1270,74 @@ function Npc2() {
   if (!active) return null;
   // Tom is always the Frequency GLB; avoid a visual model swap while the asset streams in.
   return <Suspense fallback={null}><Npc2Model /></Suspense>;
+}
+
+// ── NPC3 = the smallchill guest (arrives via the phone easter egg). GLB on the same 24-bone Meshy rig, so
+//    it reuses the GLB driver + the shared sit clip; wanders and settles on a free sofa/bean-bag seat. ──
+const NPC3_WALK = '/models/smallchill/walking.glb';
+const NPC3_IDLE = '/models/smallchill/idle.glb';
+const NPC3_SIT = '/models/sit.glb'; // shared seated transition (binds by bone name)
+// The smallchill GLB imports at a tiny native height (~0.016 units), so it needs a large scale. Jonny is
+// 170cm at ~2.89 units; Yebin (NPC3) is 161cm → ~2.74 units → 2.74 / 0.016 ≈ 171.
+const NPC3_SCALE = 171;
+const NPC3_SILHOUETTE = '#10131a';
+
+function Npc3Model() {
+  const walkGlb = useGLTF(NPC3_WALK);
+  const idleGlb = useGLTF(NPC3_IDLE);
+  const sitGlb = useGLTF(NPC3_SIT);
+  const selectObject = useGameStore((s) => s.selectObject);
+  const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE, NPC3_SILHOUETTE), []);
+  useEffect(() => () => silhouette.dispose(), [silhouette]);
+  const scene = useMemo(() => {
+    const root = cloneSkeleton(walkGlb.scene) as THREE.Object3D;
+    root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
+    applyCharacterSilhouette(root, CHARACTER_RENDER_MODE, silhouette);
+    return root;
+  }, [walkGlb.scene, silhouette]);
+  const modelScale = NPC3_SCALE;
+  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(idleGlb, 'idle', true), anchorHipsInPlace(pickClip(sitGlb, 'sit'))].filter(Boolean) as THREE.AnimationClip[], [walkGlb, idleGlb, sitGlb]);
+  const inner = useRef<THREE.Group>(null);
+  const group = useRef<THREE.Group>(null);
+  const { actions } = useAnimations(clips, scene);
+  const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
+  useFrame((_, dt) => {
+    const s = useGameStore.getState();
+    if (!s.npc3Active || !group.current || !inner.current) return;
+    const [x, z] = toWorld(s.npc3Pos.x, s.npc3Pos.y);
+    const c = st.current;
+    if (!c.ready) { c.x = x; c.z = z; c.ready = true; }
+    const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
+    const sitting = s.npc3Sitting;
+    const moving = !sitting && Math.hypot(dx, dz) > 0.0015;
+    const ease = Math.min(1, dt * 10);
+    group.current.position.set(x, 0, z);
+    const want = sitting ? 'sit' : moving ? 'walk' : 'idle';
+    if (want !== c.clip) {
+      const prev = actions[c.clip]; if (prev) prev.fadeOut(0.2);
+      const next = actions[want];
+      if (next) { next.reset(); const once = want === 'sit'; next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); next.clampWhenFinished = once; next.fadeIn(0.2).play(); }
+      c.clip = want;
+    }
+    if (sitting) {
+      inner.current.position.set(0, SEAT_ROOT_Y, SEAT_ROOT_Z);
+      c.facing += (Math.PI - c.facing) * ease; // seated, facing into the room (−z)
+    } else {
+      inner.current.position.set(0, 0, 0);
+      if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 8); }
+    }
+    group.current.rotation.y = c.facing;
+  });
+  return <group ref={group} onClick={(event) => { event.stopPropagation(); selectObject('npc2'); }}>
+    <group ref={inner}><group scale={modelScale}><primitive object={scene} /></group></group>
+  </group>;
+}
+useGLTF.preload(NPC3_WALK); useGLTF.preload(NPC3_IDLE); useGLTF.preload(NPC3_SIT);
+
+function Npc3() {
+  const active = useGameStore((state) => state.npc3Active);
+  if (!active) return null;
+  return <Suspense fallback={null}><Npc3Model /></Suspense>;
 }
 
 // Soft contact shadows so floor furniture reads as planted, not floating. One shared radial-gradient
@@ -1417,7 +1496,7 @@ function Room() {
     <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[0, 6.15, 0]}><boxGeometry args={[14 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
-    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><DeskLamp /><Player /><Visitor /><Npc2 /><CelebrationFX active={chapterCelebration} /><CameraRig />
+    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;
 }
 

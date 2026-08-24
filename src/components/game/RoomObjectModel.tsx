@@ -371,6 +371,27 @@ function Bed() {
   </group>;
 }
 
+/** The bedside phone. Hand-sized, screen softly lit — and during the phone easter egg it rings: the screen
+ *  flashes blue and a blue light pulses so the incoming call reads across the room. */
+function BedPhone() {
+  const ringing = useGameStore((s) => s.phoneRinging);
+  const screen = useRef<THREE.MeshStandardMaterial>(null);
+  const light = useRef<THREE.PointLight>(null);
+  const shake = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    const pulse = ringing ? 0.5 + 0.5 * Math.sin(t * 9) : 0;
+    if (screen.current) screen.current.emissiveIntensity = ringing ? 1.4 + pulse * 3 : 1.1;
+    if (light.current) light.current.intensity = ringing ? 0.6 + pulse * 2.4 : 0.35;
+    if (shake.current) shake.current.rotation.z = ringing ? Math.sin(t * 34) * 0.05 : 0;
+  });
+  return <group ref={shake} position={[0, 0.76, 0]} rotation={[0, -0.4, 0]}>
+    <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.15, 0.3, 0.02]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
+    <mesh position={[0, 0.026, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.12, 0.26]} /><meshStandardMaterial ref={screen} color={ringing ? '#3d7bff' : '#3a4a70'} emissive={ringing ? '#3d7bff' : '#4a5c8a'} emissiveIntensity={1.1} toneMapped={false} /></mesh>
+    <pointLight ref={light} position={[0, 0.16, 0]} color={ringing ? '#4d8bff' : '#6a7fb8'} intensity={0.35} distance={1.4} />
+  </group>;
+}
+
 /** The bedside ukulele (interactive prop). Leaning upright; hidden while the player is holding + playing
  *  it (the hand-attached copy takes over in ThreeStudio) so there's never a duplicate on the floor. */
 function UkuleleModel() {
@@ -514,12 +535,7 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     // Phone resting ON TOP of the duvet (blanket top ≈ 0.73 world), not sunk into the mattress.
     // The flat body sits a hair above the bedding and the lit screen a further hair above that,
     // so it reads as casually dropped on the bed with no clipping or z-fighting.
-    case 'bedPhone': return <group position={[0, 0.76, 0]} rotation={[0, -0.4, 0]}>
-      {/* Hand-sized phone (was oversized). */}
-      <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow><boxGeometry args={[0.15, 0.3, 0.02]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
-      <mesh position={[0, 0.026, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.12, 0.26]} /><meshStandardMaterial color="#3a4a70" emissive="#4a5c8a" emissiveIntensity={1.1} toneMapped={false} /></mesh>
-      <pointLight position={[0, 0.16, 0]} color="#6a7fb8" intensity={0.35} distance={1.1} />
-    </group>;
+    case 'bedPhone': return <BedPhone />;
 
     case 'lyricNotebook': return <group position={[0, DESK_Y, 0]} rotation={[0, 0.3, 0]}>
       <mesh position={[0, 0.04, 0]} castShadow><boxGeometry args={[0.5, 0.06, 0.66]} /><meshStandardMaterial color="#e7e1d5" /></mesh>

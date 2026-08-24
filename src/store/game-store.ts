@@ -61,6 +61,23 @@ type GameState = GameSnapshot & {
   /** Where NPC 2 is currently strolling to, and when its current pause ends. */
   npc2Target: Point;
   npc2PauseUntil: number;
+  /** Seat id NPC2 is currently heading to / sitting on (bean bag), or null while wandering; `npc2Sitting`
+   *  is true once it has actually arrived and sat; `npc2Pose` is a random seated-pose seed. */
+  npc2Seat: string | null;
+  npc2Sitting: boolean;
+  npc2Pose: number;
+  /** NPC3 (smallchill) — arrives via the phone easter egg; wanders and sits on a free sofa/bean-bag seat. */
+  npc3Active: boolean;
+  npc3Leaving: boolean;
+  npc3Pos: Point;
+  npc3Target: Point;
+  npc3PauseUntil: number;
+  npc3LeaveAt: number;
+  npc3Seat: string | null;
+  npc3Sitting: boolean;
+  /** Phone easter egg: the bedside phone is ringing (blue glow) and the "pick up?" prompt is up. */
+  phoneRinging: boolean;
+  phoneRingCheck: number;
   /** Elevator ride in progress: where it is heading and when it gets there (`elapsedMs`). */
   elevatorTo: string | null;
   elevatorArrivesAt: number;
@@ -89,6 +106,7 @@ type GameState = GameSnapshot & {
   stepMovement: (deltaMs: number) => void;
   stepVisitor: (deltaMs: number) => void;
   stepNpc2: (deltaMs: number) => void;
+  stepNpc3: (deltaMs: number) => void;
   selectObject: (id?: string) => void;
   closeVideo: () => void;
   openVideo: (id: string) => void;
@@ -211,6 +229,23 @@ const SIT_POSITION = CHAIR_SIT_ANCHOR;
 const LIE_POSITION = BED_LIE_ANCHOR;
 const ENTRANCE_POSITION = centerOf('entrance', { x: 256, y: 768 });
 
+// Guest seats: the bean bag (one spot) and three spots along the sofa. NPCs claim a free one so they never
+// pile onto the same seat. Positions are derived from the furniture so they move with it.
+export type NpcSeat = { id: string; pos: Point };
+const _sofaC = centerOf('sofa', { x: 675, y: 764 });
+const NPC_SEATS: NpcSeat[] = [
+  { id: 'beanbag', pos: centerOf('beanbag', { x: 165, y: 735 }) },
+  { id: 'sofaL', pos: { x: _sofaC.x - 88, y: _sofaC.y } },
+  { id: 'sofaM', pos: { x: _sofaC.x, y: _sofaC.y } },
+  { id: 'sofaR', pos: { x: _sofaC.x + 88, y: _sofaC.y } },
+];
+const seatPos = (id: string | null): Point => NPC_SEATS.find((s) => s.id === id)?.pos ?? { x: 640, y: 700 };
+/** Pick a free seat (not one already claimed by `taken`), optionally restricted to a subset of seat ids. */
+const pickFreeSeat = (taken: (string | null)[], allow?: (id: string) => boolean): string | null => {
+  const free = NPC_SEATS.filter((s) => !taken.includes(s.id) && (!allow || allow(s.id)));
+  return free.length ? free[Math.floor(Math.random() * free.length)].id : null;
+};
+
 /** Every musical instrument (incl. the lyric notebook) must be used before the album can be finished (see docs). */
 const INSTRUMENT_IDS = new Set(['acousticGuitar', 'electricGuitar', 'portasound', 'sk5', 'modularSynths', 'mic', 'lyricNotebook']);
 const INSTRUMENT_BONUS: Record<string, number> = { acousticGuitar: 2.2, electricGuitar: 2.4, portasound: 2.8, sk5: 3, modularSynths: 3.4, mic: 1.6, lyricNotebook: 2 };
@@ -234,6 +269,20 @@ const PHONE_PROMPT: Prompt = {
     { label: 'Put it down', kind: 'dismiss' },
   ],
 };
+/** Easter egg: a rare late-night call. Picking up brings a third friend over. */
+const CALL_PROMPT: Prompt = {
+  title: 'The phone lights up blue…',
+  note: 'Pick up the call?',
+  choices: [
+    { label: 'Yes', kind: 'pickup-call' },
+    { label: 'No', kind: 'decline-call' },
+  ],
+};
+const CALL_MESSAGE: Prompt = {
+  title: '“I’m coming to work on stuff in the studio!”',
+  choices: [{ label: 'Nice', kind: 'dismiss' }],
+};
+
 /** The studio door: it opens onto the hallway, not straight into the elevator. */
 const LEAVE_STUDIO_PROMPT: Prompt = {
   title: 'Leave the studio?',
@@ -348,6 +397,19 @@ const initialSession = () => ({
   npc2LeaveAt: 0,
   npc2Target: { x: 880, y: 560 } as Point,
   npc2PauseUntil: 0,
+  npc2Seat: null as string | null,
+  npc2Sitting: false,
+  npc2Pose: 0,
+  npc3Active: false,
+  npc3Leaving: false,
+  npc3Pos: { x: 256, y: 768 } as Point,
+  npc3Target: { x: 256, y: 768 } as Point,
+  npc3PauseUntil: 0,
+  npc3LeaveAt: 0,
+  npc3Seat: null as string | null,
+  npc3Sitting: false,
+  phoneRinging: false,
+  phoneRingCheck: 0,
   elevatorTo: null as string | null,
   elevatorArrivesAt: 0,
   elevatorOrigin: 'apartment-hallway',
@@ -406,7 +468,7 @@ export const useGameStore = create<GameState>((set) => ({
   hydrateSession: (snapshot) => set((state) => {
     // Transient one-shot performance states must never persist across a load, or a save captured mid-pose
     // strands the character in it (e.g. stuck holding the ukulele, which also blocks sitting).
-    const cleaned = { ...snapshot, playingUkulele: false, ukuleleUntil: 0 } as Partial<GameSnapshot>;
+    const cleaned = { ...snapshot, playingUkulele: false, ukuleleUntil: 0, phoneRinging: false } as Partial<GameSnapshot>;
     const next = { ...state, ...cleaned } as GameState;
     // Safety net: a save written inside the car with no ride in flight would strand the player in a
     // room with no exit, so put them back in the studio instead.
@@ -540,6 +602,18 @@ export const useGameStore = create<GameState>((set) => ({
     const badWeather = weather === 'rain' || weather === 'hail';
     if (badWeather) needs = applyNeedChange(needs, { energy: -(weather === 'hail' ? 0.13 : 0.07) * gameMinutes });
     if (state.npc2Active) needs = applyNeedChange(needs, { social: 0.025 * gameMinutes, love: 0.01 * gameMinutes });
+    if (state.npc3Active) needs = applyNeedChange(needs, { social: 0.025 * gameMinutes, creativity: 0.015 * gameMinutes });
+    // A full house — NPC1, NPC2 AND NPC3 all in the room — sends social and creativity up sharply.
+    const fullHouse = state.visitorActive && state.npc2Active && state.npc3Active;
+    if (fullHouse) needs = applyNeedChange(needs, { social: 0.35 * gameMinutes, creativity: 0.3 * gameMinutes, love: 0.12 * gameMinutes });
+    // Phone easter egg: very rarely the phone rings (blue) with a "pick up?" prompt — only when the third
+    // friend isn't already here, nothing else is prompting, and the producer isn't mid-activity.
+    let phoneRinging = state.phoneRinging;
+    let phoneRingCheck = state.phoneRingCheck - gameMinutes;
+    if (!phoneRinging && !state.npc3Active && !state.prompt && !state.seated && !state.lyingDown && phoneRingCheck <= 0) {
+      if (Math.random() < 0.22) phoneRinging = true; // it rings
+      phoneRingCheck = 80 + Math.random() * 120; // re-check window (game-minutes)
+    }
     const weatherGraph = weatherChanged && badWeather ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'burnout', direction: 'up' }]) : state.emotionalGraph;
     needs = applyNeedChange(needs, Object.fromEntries(Object.entries(emotionalNeedDrift(weatherGraph)).map(([key, value]) => [key, value * gameMinutes])));
     const totalMinutes = state.clock.minuteOfDay + gameMinutes;
@@ -592,6 +666,11 @@ export const useGameStore = create<GameState>((set) => ({
       friendActivityMinutes: Math.max(0, state.friendActivityMinutes - gameMinutes),
       // At the leave time NPC2 doesn't vanish — it enters its leaving phase and walks out the door (stepNpc2).
       npc2Leaving: state.npc2Active && (state.npc2Leaving || state.elapsedMs >= state.npc2LeaveAt),
+      npc3Leaving: state.npc3Active && (state.npc3Leaving || state.elapsedMs >= state.npc3LeaveAt),
+      phoneRinging,
+      phoneRingCheck,
+      // Raise the "pick up?" prompt the moment it starts ringing.
+      ...(phoneRinging && !state.phoneRinging && !state.prompt ? { prompt: CALL_PROMPT } : {}),
       // The one-shot ukulele performance ends on its timer; the prop returns to its spot beside the bed.
       playingUkulele: state.playingUkulele && elapsedMs < state.ukuleleUntil,
       workingOnMusic: state.friendActivity === 'tune' && state.friendActivityMinutes <= gameMinutes ? false : state.workingOnMusic,
@@ -739,6 +818,14 @@ export const useGameStore = create<GameState>((set) => ({
     if (kind === 'invite-friend-2') {
       return { prompt: null, npc2Active: true, npc2Leaving: false, npc2Pos: { x: 880, y: 560 }, npc2Target: { x: 880, y: 560 }, npc2PauseUntil: state.elapsedMs + 900, npc2LeaveAt: state.elapsedMs + 180000, needs: applyNeedChange(state.needs, { social: 10, love: 3 }), stress: clamp(state.stress - 4) };
     }
+    if (kind === 'pickup-call') {
+      // Easter egg: the third friend (NPC3, smallchill) is on their way — arrives from the studio door.
+      const graph = resolveEmotionGraph(state.emotionalGraph, [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }]);
+      return { prompt: CALL_MESSAGE, phoneRinging: false, npc3Active: true, npc3Leaving: false, npc3Sitting: false, npc3Seat: null,
+        npc3Pos: { ...ENTRANCE_POSITION }, npc3Target: clampToRoom({ x: 520 + Math.random() * 240, y: 560 + Math.random() * 120 }), npc3PauseUntil: state.elapsedMs + 600, npc3LeaveAt: state.elapsedMs + 220000,
+        emotionalGraph: graph, crystal: crystalState(graph), needs: applyNeedChange(state.needs, { social: 12, love: 4 }), stress: clamp(state.stress - 6) };
+    }
+    if (kind === 'decline-call') return { prompt: null, phoneRinging: false };
     if (kind === 'doom-scroll') {
       return { prompt: null, lyingDown: true, scrolling: true, seated: false, playerPosition: LIE_POSITION, moveTarget: null, needs: applyNeedChange(state.needs, { social: -8 }), stress: clamp(state.stress + 6), lastInteraction: interactionById.doomscroll ?? state.lastInteraction };
     }
@@ -788,24 +875,59 @@ export const useGameStore = create<GameState>((set) => ({
   stepNpc2: (deltaMs) => set((state) => {
     if (!state.npc2Active || state.phase !== 'playing') return state;
     const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
+    const moveTo = (p: Point) => { const dx = p.x - state.npc2Pos.x, dy = p.y - state.npc2Pos.y; const d = Math.hypot(dx, dy) || 1; return { x: state.npc2Pos.x + (dx / d) * step, y: state.npc2Pos.y + (dy / d) * step }; };
     // Leaving: head for the entrance and step out the same door it came in, opening it on the way.
     if (state.npc2Leaving) {
-      const dx = ENTRANCE_POSITION.x - state.npc2Pos.x, dy = ENTRANCE_POSITION.y - state.npc2Pos.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, entranceOpen: true }; // out the door
-      return { npc2Pos: { x: state.npc2Pos.x + (dx / dist) * step, y: state.npc2Pos.y + (dy / dist) * step }, entranceOpen: dist <= 140 ? true : state.entranceOpen };
+      const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc2Pos.x, ENTRANCE_POSITION.y - state.npc2Pos.y) || 1;
+      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, npc2Seat: null, npc2Sitting: false, entranceOpen: true };
+      return { npc2Pos: moveTo(ENTRANCE_POSITION), npc2Seat: null, npc2Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
+    }
+    // Heading to / sitting on the bean bag.
+    if (state.npc2Seat) {
+      const s = seatPos(state.npc2Seat);
+      if (!state.npc2Sitting) {
+        if (Math.hypot(s.x - state.npc2Pos.x, s.y - state.npc2Pos.y) > 26) return { npc2Pos: moveTo(s) };
+        return { npc2Sitting: true, npc2Pose: Math.floor(Math.random() * 3), npc2Pos: s, npc2PauseUntil: state.elapsedMs + 5000 + Math.random() * 8000 };
+      }
+      if (state.elapsedMs < state.npc2PauseUntil) return state; // sitting
+      return { npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 1200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
     }
     if (state.elapsedMs < state.npc2PauseUntil) return state; // standing still, taking the room in
-    const dx = state.npc2Target.x - state.npc2Pos.x;
-    const dy = state.npc2Target.y - state.npc2Pos.y;
-    const dist = Math.hypot(dx, dy);
+    const dist = Math.hypot(state.npc2Target.x - state.npc2Pos.x, state.npc2Target.y - state.npc2Pos.y);
     if (dist <= 24) {
-      // Arrived — linger for a beat, then wander somewhere else in the open floor.
-      return {
-        npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200,
-        npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }),
-      };
+      // Arrived — occasionally go settle on the bean bag (if NPC3 isn't there), else wander on.
+      if (state.npc3Seat !== 'beanbag' && Math.random() < 0.4) return { npc2Seat: 'beanbag' };
+      return { npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
     }
-    return { npc2Pos: { x: state.npc2Pos.x + (dx / dist) * step, y: state.npc2Pos.y + (dy / dist) * step } };
+    return { npc2Pos: moveTo(state.npc2Target) };
+  }),
+  stepNpc3: (deltaMs) => set((state) => {
+    if (!state.npc3Active || state.phase !== 'playing') return state;
+    const step = 175 * (deltaMs / 1000);
+    const moveTo = (p: Point) => { const dx = p.x - state.npc3Pos.x, dy = p.y - state.npc3Pos.y; const d = Math.hypot(dx, dy) || 1; return { x: state.npc3Pos.x + (dx / d) * step, y: state.npc3Pos.y + (dy / d) * step }; };
+    if (state.npc3Leaving) {
+      const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc3Pos.x, ENTRANCE_POSITION.y - state.npc3Pos.y) || 1;
+      if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true };
+      return { npc3Pos: moveTo(ENTRANCE_POSITION), npc3Seat: null, npc3Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
+    }
+    // Heading to / sitting on a claimed sofa/bean-bag seat.
+    if (state.npc3Seat) {
+      const s = seatPos(state.npc3Seat);
+      if (!state.npc3Sitting) {
+        if (Math.hypot(s.x - state.npc3Pos.x, s.y - state.npc3Pos.y) > 26) return { npc3Pos: moveTo(s) };
+        return { npc3Sitting: true, npc3Pos: s, npc3PauseUntil: state.elapsedMs + 6000 + Math.random() * 9000 };
+      }
+      if (state.elapsedMs < state.npc3PauseUntil) return state;
+      return { npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 1400, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
+    }
+    if (state.elapsedMs < state.npc3PauseUntil) return state;
+    const dist = Math.hypot(state.npc3Target.x - state.npc3Pos.x, state.npc3Target.y - state.npc3Pos.y);
+    if (dist <= 24) {
+      // Arrived — usually claim a FREE seat (never NPC2's), else wander on.
+      const seat = pickFreeSeat([state.npc2Seat]);
+      if (seat && Math.random() < 0.6) return { npc3Seat: seat };
+      return { npc3PauseUntil: state.elapsedMs + 1200 + Math.random() * 3000, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
+    }
+    return { npc3Pos: moveTo(state.npc3Target) };
   }),
 }));

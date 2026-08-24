@@ -9,5 +9,6 @@ export function createSimulationSystem(): FrameSystem {
     store.stepMovement(deltaMs); // eases the producer toward any click-to-move target
     store.stepVisitor(deltaMs); // walks a called-over friend in and back out
     store.stepNpc2(deltaMs); // strolls the second friend between spots around the room
+    store.stepNpc3(deltaMs); // the third friend (phone easter egg) wanders + sits on a free seat
   };
 }
