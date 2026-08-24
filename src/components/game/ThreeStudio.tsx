@@ -615,6 +615,7 @@ const GLB_LIE = '/models/lie.glb'; // Knock_Down (plays once, holds the lying en
 // skeleton (they render displaced/invisible), so those SEATED activities use the GLB sit pose + FX overlays.
 // The scroll + ukulele FBX are quaternion-only (no foreign translation), so they bind cleanly.
 const FBX_SCROLL = '/models/scroll.fbx'; // Doomscroll (lying, thumbing the phone)
+const FBX_MAKETUNE = '/models/maketune.fbx'; // seated collaboration performance
 const FBX_UKULELE = '/models/ukulele.fbx'; // Ukulele performance (standing, strumming)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
@@ -627,7 +628,7 @@ const SEAT_ROOT_Y = 0.24; // GLB sit clip — raised to meet the enlarged (CHAIR
 const SEAT_ROOT_Z = -0.1; // settle back into the chair
 const LIE_ROOT_Y = 0.72; // rest on the mattress surface
 const LIE_ROOT_Z = 0.2; // slide toward the pillow / headboard end
-const LIE_YAW = -Math.PI / 2; // align the lying body along the bed, head at the headboard (bed head)
+const LIE_YAW = Math.PI / 2; // bed head is local -x, rotated to world -z by the bed's +90° layout yaw
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
 //    look we override it at runtime with a matte near-black material so the character reads as a moving
@@ -726,10 +727,10 @@ function heightScale(root: THREE.Object3D, targetHeight: number): number {
 
 // Bone handles used to pose the GLB skeleton procedurally (seated legs, arms-down idle) on top of / in
 // place of a clip. Shared by all three characters (identical 24-bone rig).
-type PoseBones = { ulL?: THREE.Object3D; ulR?: THREE.Object3D; lL?: THREE.Object3D; lR?: THREE.Object3D; spine?: THREE.Object3D; aL?: THREE.Object3D; aR?: THREE.Object3D; fL?: THREE.Object3D; fR?: THREE.Object3D };
+type PoseBones = { ulL?: THREE.Object3D; ulR?: THREE.Object3D; lL?: THREE.Object3D; lR?: THREE.Object3D; spine?: THREE.Object3D; aL?: THREE.Object3D; aR?: THREE.Object3D; fL?: THREE.Object3D; fR?: THREE.Object3D; hL?: THREE.Object3D; hR?: THREE.Object3D };
 function grabPoseBones(root: THREE.Object3D): PoseBones {
   const g = (n: string) => root.getObjectByName(n) ?? undefined;
-  return { ulL: g('LeftUpLeg'), ulR: g('RightUpLeg'), lL: g('LeftLeg'), lR: g('RightLeg'), spine: g('Spine'), aL: g('LeftArm'), aR: g('RightArm'), fL: g('LeftForeArm'), fR: g('RightForeArm') };
+  return { ulL: g('LeftUpLeg'), ulR: g('RightUpLeg'), lL: g('LeftLeg'), lR: g('RightLeg'), spine: g('Spine'), aL: g('LeftArm'), aR: g('RightArm'), fL: g('LeftForeArm'), fR: g('RightForeArm'), hL: g('LeftHand'), hR: g('RightHand') };
 }
 
 /** Ukulele held across the chest while performing (an overlay, so it's always visible — reliably shown
@@ -767,6 +768,7 @@ function PlayerModel() {
   const lie = useGLTF(GLB_LIE);
   // Interaction poses (FBX): real motion on the Armature bones, bound by bone name to the GLB skeleton.
   const scrollFbx = useLoader(FBXLoader, FBX_SCROLL);
+  const maketuneFbx = useLoader(FBXLoader, FBX_MAKETUNE);
   const ukuleleFbx = useLoader(FBXLoader, FBX_UKULELE);
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
@@ -787,15 +789,27 @@ function PlayerModel() {
     // sit/lie (GLB) bake a step-in walk into the root — anchor them in place so the body stays on the chair/bed.
     anchorHipsInPlace(pickClip(sit, 'sit')), anchorHipsInPlace(pickClip(lie, 'lie')),
     fbxPick(scrollFbx, 'scroll'), // doomscroll lying pose (quaternion-only)
+    fbxPick(maketuneFbx, 'maketune'), // seated collaboration motion
     fbxPick(ukuleleFbx, 'ukulele'), // standing strum performance (quaternion-only, upright)
-  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scrollFbx, ukuleleFbx]);
+  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scrollFbx, maketuneFbx, ukuleleFbx]);
   const group = useRef<THREE.Group>(null);
+  const phoneProp = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
+  useEffect(() => {
+    const hand = bones.current.hR;
+    const prop = phoneProp.current;
+    if (!hand || !prop) return;
+    hand.add(prop);
+    prop.position.set(0.02, -0.11, 0.035);
+    prop.rotation.set(Math.PI / 2, 0, 0);
+    return () => { hand.remove(prop); };
+  }, [scene]);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
   useFrame((_, dt) => {
     const s = useGameStore.getState();
     const g = group.current; if (!g) return;
     const seated = s.seated, lying = s.lyingDown;
+    if (phoneProp.current) phoneProp.current.visible = lying && s.scrolling;
     const [x, z] = toWorld(s.playerPosition.x, s.playerPosition.y);
     const c = st.current;
     if (!c.ready) { c.x = x; c.z = z; c.ready = true; }
@@ -808,6 +822,7 @@ function PlayerModel() {
     // are differentiated by their FX/prop overlays instead. Lying (sleep / doomscroll) uses the GLB `lie`.
     const want = moving ? (s.running ? 'run' : 'walk')
       : s.playingUkulele ? 'ukulele' // standing strum performance (ukulele.fbx)
+      : s.friendActivity === 'tune' ? 'maketune'
       : (lying && s.scrolling) ? 'scroll' // doomscroll: real scroll motion, same lie orientation
       : lying ? 'lie'
       : seated ? 'sit'
@@ -842,11 +857,18 @@ function PlayerModel() {
       g.rotation.set(0, c.facing, 0);
     }
   });
-  return <group ref={group} scale={MODEL_SCALE}><primitive object={scene} /></group>;
+  return <group ref={group} scale={MODEL_SCALE}>
+    <primitive object={scene} />
+    <group ref={phoneProp} visible={false}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}><boxGeometry args={[0.18, 0.34, 0.025]} /><meshStandardMaterial color="#0c0e14" metalness={0.5} roughness={0.3} /></mesh>
+      <mesh position={[0, 0, 0.018]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[0.15, 0.29]} /><meshStandardMaterial color="#536b9d" emissive="#536b9d" emissiveIntensity={1.35} toneMapped={false} /></mesh>
+      <pointLight color="#6a7fb8" intensity={0.5} distance={0.8} />
+    </group>
+  </group>;
 }
 useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
 useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE);
-useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_UKULELE);
+useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_MAKETUNE); useLoader.preload(FBXLoader, FBX_UKULELE);
 
 /** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
  *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only
@@ -878,12 +900,6 @@ function Player({ crystal = true }: { crystal?: boolean } = {}) {
     {/* Seated collaboration props. */}
     {seated && friendActivity === 'tune' && <TunePerformance />}
     {seated && friendActivity === 'video-game' && <mesh position={[0, 1.18, -0.48]} rotation={[-0.28, 0, 0]}><boxGeometry args={[0.54, 0.3, 0.06]} /><meshStandardMaterial color="#263b48" emissive="#315f76" emissiveIntensity={0.8} /></mesh>}
-    {/* Doom-scrolling: a glowing phone held up over the lying body. */}
-    {lyingDown && scrolling && <group position={[0, 1.28, 0.5]}>
-      <mesh rotation={[-0.6, 0, 0]}><boxGeometry args={[0.24, 0.44, 0.02]} /><meshStandardMaterial color="#0c0e14" /></mesh>
-      <mesh position={[0, 0, 0.02]} rotation={[-0.6, 0, 0]}><planeGeometry args={[0.2, 0.38]} /><meshStandardMaterial color="#3a4a70" emissive="#5468a0" emissiveIntensity={1.3} toneMapped={false} /></mesh>
-      <pointLight color="#6a7fb8" intensity={0.7} distance={1.2} />
-    </group>}
     {crystal && <EmotionalCrystal y={crystalY} />}
     <ThoughtBubble y={thoughtY} />
   </group>;
@@ -986,6 +1002,7 @@ function VisitorProcedural() {
 const NPC1_WALK = '/models/shadow/walk.glb'; // Path = Shadow Frequency
 const NPC1_SIT = '/models/shadow/sit.glb';
 const NPC1_IDLE = '/models/shadow/idle.glb'; // canonical base pose (clip0)
+const NPC1_MAKETUNE = '/models/maketune.fbx';
 // Jonny renders at ~1.7·1.7 = 2.89 units = 173cm (≈59.9 cm/unit); Path 190cm → ~3.17 units. Shadow
 // Frequency is 1.88 raw, so scale ≈ 3.17/1.88 ≈ 1.69 (measured bounding box, not a blind ratio).
 const NPC1_SCALE = 1.69;
@@ -995,6 +1012,7 @@ function Npc1Model() {
   const walkGlb = useGLTF(NPC1_WALK);
   const sitGlb = useGLTF(NPC1_SIT);
   const idleGlb = useGLTF(NPC1_IDLE);
+  const maketuneFbx = useLoader(FBXLoader, NPC1_MAKETUNE);
   const selectObject = useGameStore((s) => s.selectObject);
   const selected = useGameStore((s) => s.selectedObjectId === 'visitor');
   const friendActivity = useGameStore((s) => s.friendActivity);
@@ -1008,7 +1026,7 @@ function Npc1Model() {
     bones.current = grabPoseBones(root);
     return root;
   }, [walkGlb.scene, silhouette]);
-  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true)].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb]);
+  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true), fbxPick(maketuneFbx, 'maketune')].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx]);
   const group = useRef<THREE.Group>(null);
   const drinkGlass = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
@@ -1042,7 +1060,7 @@ function Npc1Model() {
     group.current.rotation.y = c.facing;
     // Clip: a held seated pose during any friend activity (tune/vodka differentiated by the FX/prop
     // overlays), walk while moving, else the idle base pose (standing at the synth).
-    const want = s.friendActivity ? 'sit' : moving ? 'walk' : 'idle';
+    const want = s.friendActivity === 'tune' ? 'maketune' : s.friendActivity ? 'sit' : moving ? 'walk' : 'idle';
     if (want !== c.clip) {
       if (c.clip) actions[c.clip]?.fadeOut(0.2);
       const a = actions[want];
@@ -1070,7 +1088,7 @@ function Npc1Model() {
     {selected && <Html center position={[0, 2.9, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">FRIEND · ENTER</div></Html>}
   </group>;
 }
-useGLTF.preload(NPC1_WALK); useGLTF.preload(NPC1_SIT); useGLTF.preload(NPC1_IDLE);
+useGLTF.preload(NPC1_WALK); useGLTF.preload(NPC1_SIT); useGLTF.preload(NPC1_IDLE); useLoader.preload(FBXLoader, NPC1_MAKETUNE);
 
 /** Path (NPC1). Mounts only while visiting; the Shadow Frequency GLB streams in behind the procedural
  *  fallback so it never falls back to the old geometry once loaded. */
@@ -1205,7 +1223,7 @@ const NPC2_MESH = '/models/bigfreq/idle.fbx'; // redesigned mesh + idle pose (ri
 const NPC2_WALK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx';
 const NPC2_CLAP = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sitting_Clap_withSkin.fbx';
 const NPC2_DRINK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sit_and_Drink_withSkin.fbx';
-const NPC2_SEAT_Y = -0.55; // drops the (quaternion-only) seated pose onto the low bean bag — tune by eye
+const NPC2_SEAT_Y = 0.12; // lift the seated FBX onto the beanbag cushion instead of sinking into a lying pose
 const NPC2_TARGET_HEIGHT = 3.0; // world units — Tom reads a touch taller than Jonny's ~2.89
 const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
 
@@ -1488,13 +1506,13 @@ function Room() {
         flooding the room (kept local via a short distance and low intensity). */}
     <pointLight position={[0, 4.0, 1.4]} intensity={1.6} color="#8fa2c8" distance={7} />
     {/* The room shell scales with the layout so the enlarged studio keeps its proportions and mood. */}
-    <mesh receiveShadow position={[0, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[14 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
+    <mesh receiveShadow position={[-0.7 * ROOM_SCALE, -0.08, 0]} onClick={(event) => { event.stopPropagation(); if (isDrag(event.nativeEvent)) return; setMoveTarget(toLogical(event.point.x, event.point.z)); }}><boxGeometry args={[15.4 * ROOM_SCALE, 0.16, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#17263a" roughness={0.84} /></mesh>
     {/* Walls are translucent so they never block the view when the camera orbits (depthWrite off = no occlusion). */}
-    <mesh position={[0, 3.1, -5 * ROOM_SCALE]}><boxGeometry args={[14 * ROOM_SCALE, 6.2, 0.18]} /><meshStandardMaterial color="#243146" transparent opacity={0.16} depthWrite={false} /></mesh>
-    <mesh position={[-7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[-0.7 * ROOM_SCALE, 3.1, -5 * ROOM_SCALE]}><boxGeometry args={[15.4 * ROOM_SCALE, 6.2, 0.18]} /><meshStandardMaterial color="#243146" transparent opacity={0.16} depthWrite={false} /></mesh>
+    <mesh position={[-8.4 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.34, 6.2, 10.2 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     {/* Right wall the closet and the bedside window are mounted against. */}
     <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
-    <mesh position={[0, 6.15, 0]}><boxGeometry args={[14 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
+    <mesh position={[-0.7 * ROOM_SCALE, 6.15, 0]}><boxGeometry args={[15.4 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
     {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;

@@ -46,17 +46,18 @@ export const STUDIO_OBJECTS: StudioObject[] = [
   { id: 'guitarPedal', x: 438, y: 548, width: 58, height: 42, color: '#2c3440' },
   { id: 'switch', x: 526, y: 422, width: 76, height: 42, color: '#5d7a86' },
   { id: 'acousticGuitar', x: 235, y: 470, width: 62, height: 156, color: '#ba8653', shape: 'guitar' },
-  { id: 'electricGuitar', x: 400, y: 470, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
+  { id: 'electricGuitar', x: 360, y: 470, width: 58, height: 156, color: '#e9e8df', shape: 'guitar' },
   { id: 'bed', x: 1075, y: 305, width: 218, height: 168, color: '#54667d', rotationY: Math.PI / 2 },
   { id: 'bedPhone', x: 1140, y: 335, width: 34, height: 54, color: '#0c0e14' },
   // Pushed up against the back wall (low y) and clear of the bed, which moved right.
-  { id: 'miniFridge', x: 982, y: 55, width: 86, height: 132, color: '#a8aeb6' },
+  // Back face is aligned to the room's back-wall plane (the fridge remains a floor object).
+  { id: 'miniFridge', x: 982, y: 28, width: 86, height: 132, color: '#a8aeb6' },
   // A stylised ukulele leaning beside the bed — interactive (picked up + played). Not a collider.
   { id: 'ukulele', x: 975, y: 545, width: 50, height: 74, color: '#c68a4e' },
   // Grey bean bag in the front-left corner by the studio door — perch-height, sit-able by every character.
   { id: 'beanbag', x: 120, y: 690, width: 90, height: 90, color: '#7b7d84' },
   // A three-seater sofa in the open front area opposite the desk, facing it — sit-able like the bean bag.
-  { id: 'sofa', x: 545, y: 720, width: 260, height: 96, color: '#4a5464' },
+  { id: 'sofa', x: 545, y: 726, width: 260, height: 96, color: '#4a5464', rotationY: Math.PI },
   // Pushed to the front-right corner, clear of the bed.
   { id: 'bathroom', x: 1192, y: 690, width: 120, height: 88, color: '#456473', rotationY: -Math.PI / 2, wall: 'right' },
   // Studio exit door mounted flat against the LEFT wall (rotated a quarter turn), moved toward the front

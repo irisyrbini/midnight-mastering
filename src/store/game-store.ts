@@ -154,7 +154,9 @@ const SELECT_RADIUS = 105;
 type Point = { x: number; y: number };
 
 /** Walkable floor. Widened so the producer can roam the open front and walk behind the desk to the window. */
-const clampToRoom = (p: Point): Point => ({ x: Math.max(70, Math.min(1240, p.x)), y: Math.max(150, Math.min(780, p.y)) });
+// The left side has extra clearance for the entrance and the instrument table. Keep the logical
+// bounds aligned with the widened room shell in ThreeStudio so navigation does not pinch at the wall.
+const clampToRoom = (p: Point): Point => ({ x: Math.max(-220, Math.min(1240, p.x)), y: Math.max(150, Math.min(780, p.y)) });
 
 // Gameplay collision is kept in the same logical coordinate space as the
 // room layout.  Small tabletop props remain decorative; these are the major
@@ -191,6 +193,26 @@ const collisionSafeStep = (from: Point, desired: Point) => {
   if (!isBlocked(xOnly)) return xOnly;
   const yOnly = clampToRoom({ x: from.x, y: candidate.y });
   return isBlocked(yOnly) ? from : yOnly;
+};
+// Guests use the same furniture map as the producer. When their direct route is blocked, try a
+// perpendicular step (then the cardinal fallbacks) so they naturally skirt desks, beds and sofas.
+const npcSafeStep = (from: Point, target: Point, step: number, radius = 20): Point => {
+  const dx = target.x - from.x, dy = target.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.001) return from;
+  const amount = Math.min(step, dist);
+  const ux = dx / dist, uy = dy / dist;
+  const direct = clampToRoom({ x: from.x + ux * amount, y: from.y + uy * amount });
+  if (!isBlocked(direct, radius)) return direct;
+  const side = [
+    { x: from.x - uy * amount * 1.35 + ux * amount * 0.25, y: from.y + ux * amount * 1.35 + uy * amount * 0.25 },
+    { x: from.x + uy * amount * 1.35 + ux * amount * 0.25, y: from.y - ux * amount * 1.35 + uy * amount * 0.25 },
+    { x: from.x + amount, y: from.y },
+    { x: from.x, y: from.y + amount },
+    { x: from.x - amount, y: from.y },
+    { x: from.x, y: from.y - amount },
+  ].map(clampToRoom).filter((p) => !isBlocked(p, radius));
+  return side.sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y))[0] ?? from;
 };
 const approachPoint = (from: Point, objectId: string, fallback: Point) => {
   const object = STUDIO_OBJECTS.find((item) => item.id === objectId);
@@ -863,8 +885,8 @@ export const useGameStore = create<GameState>((set) => ({
       }
     }
     if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true }; // opens the door and steps out
-    if (goingHome && dist <= 120) { const vp = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step }; return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
-    const visitorPos = { x: state.visitorPos.x + (dx / dist) * step, y: state.visitorPos.y + (dy / dist) * step };
+    if (goingHome && dist <= 120) { const vp = npcSafeStep(state.visitorPos, target, step, 22); return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
+    const visitorPos = npcSafeStep(state.visitorPos, target, step, 22);
     return { visitorPos };
   }),
   /**
@@ -875,7 +897,7 @@ export const useGameStore = create<GameState>((set) => ({
   stepNpc2: (deltaMs) => set((state) => {
     if (!state.npc2Active || state.phase !== 'playing') return state;
     const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
-    const moveTo = (p: Point) => { const dx = p.x - state.npc2Pos.x, dy = p.y - state.npc2Pos.y; const d = Math.hypot(dx, dy) || 1; return { x: state.npc2Pos.x + (dx / d) * step, y: state.npc2Pos.y + (dy / d) * step }; };
+    const moveTo = (p: Point) => npcSafeStep(state.npc2Pos, p, step, 22);
     // Leaving: head for the entrance and step out the same door it came in, opening it on the way.
     if (state.npc2Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc2Pos.x, ENTRANCE_POSITION.y - state.npc2Pos.y) || 1;
@@ -904,7 +926,7 @@ export const useGameStore = create<GameState>((set) => ({
   stepNpc3: (deltaMs) => set((state) => {
     if (!state.npc3Active || state.phase !== 'playing') return state;
     const step = 175 * (deltaMs / 1000);
-    const moveTo = (p: Point) => { const dx = p.x - state.npc3Pos.x, dy = p.y - state.npc3Pos.y; const d = Math.hypot(dx, dy) || 1; return { x: state.npc3Pos.x + (dx / d) * step, y: state.npc3Pos.y + (dy / d) * step }; };
+    const moveTo = (p: Point) => npcSafeStep(state.npc3Pos, p, step, 22);
     if (state.npc3Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc3Pos.x, ENTRANCE_POSITION.y - state.npc3Pos.y) || 1;
       if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true };
