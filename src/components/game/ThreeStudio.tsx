@@ -1301,7 +1301,10 @@ const NPC3_IDLE = '/models/smallchill/idle.glb';
 const NPC3_SIT = '/models/sit.glb'; // shared seated transition (binds by bone name)
 // The smallchill GLB imports at a tiny native height (~0.016 units), so it needs a large scale. Jonny is
 // 170cm at ~2.89 units; Yebin (NPC3) is 161cm → ~2.74 units → 2.74 / 0.016 ≈ 171.
-const NPC3_SCALE = 140; // reduced from 171 so NPC3 reads shorter than Jonny instead of oversized
+// Yebin (NPC3) is human-scale like the others (Jonny 170cm ≈ 2.89 units); at 1.68 her Head bone sits at
+// ~2.46 world vs Jonny's ~2.6, i.e. ~161cm. Calibrated from the Head bone's world Y — the GLB's bind
+// bounding box mis-measures this mesh, so a bbox ratio gives wildly wrong scales (that's what made it giant).
+const NPC3_SCALE = 1.68;
 const NPC3_SILHOUETTE = '#10131a';
 
 function Npc3Model() {
@@ -1318,6 +1321,7 @@ function Npc3Model() {
     return root;
   }, [walkGlb.scene, silhouette]);
   const modelScale = NPC3_SCALE;
+  // Native walk + idle; the shared sit.glb bakes a step-in walk, so anchor it in place (like the player).
   const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(idleGlb, 'idle', true), anchorHipsInPlace(pickClip(sitGlb, 'sit'))].filter(Boolean) as THREE.AnimationClip[], [walkGlb, idleGlb, sitGlb]);
   const inner = useRef<THREE.Group>(null);
   const group = useRef<THREE.Group>(null);
