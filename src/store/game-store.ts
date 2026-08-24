@@ -154,9 +154,9 @@ const SELECT_RADIUS = 105;
 type Point = { x: number; y: number };
 
 /** Walkable floor. Widened so the producer can roam the open front and walk behind the desk to the window. */
-// The left side has extra clearance for the entrance and the instrument table. Keep the logical
-// bounds aligned with the widened room shell in ThreeStudio so navigation does not pinch at the wall.
-const clampToRoom = (p: Point): Point => ({ x: Math.max(-320, Math.min(1650, p.x)), y: Math.max(150, Math.min(780, p.y)) });
+// Match the actual inner faces of the 14×10 room shell. The previous 70..1240 / 150..780 bounds were
+// inherited from the smaller prototype and created invisible walls far inside the visible room.
+const clampToRoom = (p: Point): Point => ({ x: Math.max(-55, Math.min(1335, p.x)), y: Math.max(25, Math.min(995, p.y)) });
 
 // Gameplay collision is kept in the same logical coordinate space as the
 // room layout.  Small tabletop props remain decorative; these are the major
@@ -196,7 +196,7 @@ const collisionSafeStep = (from: Point, desired: Point) => {
 };
 // Guests use the same furniture map as the producer. When their direct route is blocked, try a
 // perpendicular step (then the cardinal fallbacks) so they naturally skirt desks, beds and sofas.
-const npcSafeStep = (from: Point, target: Point, step: number, radius = 20, avoid: Point[] = []): Point => {
+const npcSafeStep = (from: Point, target: Point, step: number, radius = 20, avoid: Point[] = [], turnBias: 1 | -1 = 1): Point => {
   // NPCs are soft obstacles: separating them after a step avoids two guests deadlocking each other.
   const separateAgents = (p: Point): Point => {
     let result = { ...p };
@@ -215,25 +215,29 @@ const npcSafeStep = (from: Point, target: Point, step: number, radius = 20, avoi
   if (dist < 0.001) return from;
   const amount = Math.min(step, dist);
   const ux = dx / dist, uy = dy / dist;
+  const heading = Math.atan2(uy, ux);
+  const lookAhead = Math.max(28, amount * 4);
   const direct = clampToRoom({ x: from.x + ux * amount, y: from.y + uy * amount });
-  if (!isBlocked(direct, radius)) return separateAgents(direct);
-  const side = [
-    { x: from.x - uy * amount * 1.35 + ux * amount * 0.25, y: from.y + ux * amount * 1.35 + uy * amount * 0.25 },
-    { x: from.x + uy * amount * 1.35 + ux * amount * 0.25, y: from.y - ux * amount * 1.35 + uy * amount * 0.25 },
-    { x: from.x + amount, y: from.y },
-    { x: from.x, y: from.y + amount },
-    { x: from.x - amount, y: from.y },
-    { x: from.x, y: from.y - amount },
-  ].map(clampToRoom).filter((p) => !isBlocked(p, radius));
-  if (side.length) return separateAgents(side.sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y))[0]);
-  // If an NPC is caught at a collider edge, scan a full ring and immediately pick an escape
-  // direction. This prevents a failed direct route from leaving the guest permanently frozen.
+  const directProbe = clampToRoom({ x: from.x + ux * lookAhead, y: from.y + uy * lookAhead });
+  if (!isBlocked(direct, radius) && !isBlocked(directProbe, radius)) return separateAgents(direct);
+  // Look ahead and turn immediately. Each NPC keeps a stable preferred side, preventing left/right
+  // oscillation at corners while still allowing the opposite side when the preferred route is closed.
+  const angles = [45, 75, 105, 135, -45, -75, -105, -135, 180].map((degrees) => heading + (degrees * Math.PI / 180) * (degrees === 180 ? 1 : turnBias));
+  for (const angle of angles) {
+    const probe = clampToRoom({ x: from.x + Math.cos(angle) * lookAhead, y: from.y + Math.sin(angle) * lookAhead });
+    const next = clampToRoom({ x: from.x + Math.cos(angle) * amount, y: from.y + Math.sin(angle) * amount });
+    if (!isBlocked(probe, radius) && !isBlocked(next, radius)) return separateAgents(next);
+  }
+  // If already embedded at a collider edge, use a wider escape ring rather than freezing.
   const escapeRadius = isBlocked(from, radius) ? Math.max(8, radius - 10) : radius;
   const ring = Array.from({ length: 16 }, (_, i) => {
-    const angle = (i / 16) * Math.PI * 2;
-    return clampToRoom({ x: from.x + Math.cos(angle) * amount * 1.8, y: from.y + Math.sin(angle) * amount * 1.8 });
+    const angle = heading + turnBias * (i / 16) * Math.PI * 2;
+    return clampToRoom({ x: from.x + Math.cos(angle) * lookAhead, y: from.y + Math.sin(angle) * lookAhead });
   }).filter((p) => !isBlocked(p, escapeRadius));
-  return ring.length ? separateAgents(ring.sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y))[0]) : from;
+  if (!ring.length) return from;
+  const escape = ring[0];
+  const ex = escape.x - from.x, ey = escape.y - from.y, ed = Math.hypot(ex, ey) || 1;
+  return separateAgents(clampToRoom({ x: from.x + (ex / ed) * amount, y: from.y + (ey / ed) * amount }));
 };
 const approachPoint = (from: Point, objectId: string, fallback: Point) => {
   const object = STUDIO_OBJECTS.find((item) => item.id === objectId);
@@ -275,10 +279,12 @@ const ENTRANCE_POSITION = centerOf('entrance', { x: 256, y: 768 });
 // Guest seats: three spots along the sofa. NPCs claim a free one so they never pile onto the same seat.
 export type NpcSeat = { id: string; pos: Point };
 const _sofaC = centerOf('sofa', { x: 675, y: 764 });
+const _sofaRotation = STUDIO_OBJECTS.find((object) => object.id === 'sofa')?.rotationY ?? 0;
+const _sofaRunsAlongY = Math.abs(Math.sin(_sofaRotation)) > 0.7;
 const NPC_SEATS: NpcSeat[] = [
-  { id: 'sofaL', pos: { x: _sofaC.x - 88, y: _sofaC.y } },
+  { id: 'sofaL', pos: _sofaRunsAlongY ? { x: _sofaC.x, y: _sofaC.y - 88 } : { x: _sofaC.x - 88, y: _sofaC.y } },
   { id: 'sofaM', pos: { x: _sofaC.x, y: _sofaC.y } },
-  { id: 'sofaR', pos: { x: _sofaC.x + 88, y: _sofaC.y } },
+  { id: 'sofaR', pos: _sofaRunsAlongY ? { x: _sofaC.x, y: _sofaC.y + 88 } : { x: _sofaC.x + 88, y: _sofaC.y } },
 ];
 const seatPos = (id: string | null): Point => NPC_SEATS.find((s) => s.id === id)?.pos ?? { x: 640, y: 700 };
 /** Pick a free seat (not one already claimed by `taken`), optionally restricted to a subset of seat ids. */
@@ -904,8 +910,8 @@ export const useGameStore = create<GameState>((set) => ({
       }
     }
     if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true }; // opens the door and steps out
-    if (goingHome && dist <= 120) { const vp = npcSafeStep(state.visitorPos, target, step, 22, [state.npc2Pos, state.npc3Pos, state.playerPosition]); return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
-    const visitorPos = npcSafeStep(state.visitorPos, target, step, 22);
+    if (goingHome && dist <= 120) { const vp = npcSafeStep(state.visitorPos, target, step, 22, [], -1); return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
+    const visitorPos = npcSafeStep(state.visitorPos, target, step, 22, [], -1);
     return { visitorPos };
   }),
   /**
@@ -918,11 +924,15 @@ export const useGameStore = create<GameState>((set) => ({
     if (state.npc2Seat && !NPC_SEATS.some((seat) => seat.id === state.npc2Seat)) return { npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 400 };
     // Hard recovery: if guests have already overlapped or one was saved inside furniture, pull NPC2
     // to a known open floor point before normal steering resumes.
-    if ((state.npc3Active && Math.hypot(state.npc2Pos.x - state.npc3Pos.x, state.npc2Pos.y - state.npc3Pos.y) < 48) || isBlocked(state.npc2Pos, 18)) {
+    if ((state.npc3Active && Math.hypot(state.npc2Pos.x - state.npc3Pos.x, state.npc2Pos.y - state.npc3Pos.y) < 48) || (!state.npc2Seat && isBlocked(state.npc2Pos, 18))) {
       return { npc2Pos: { x: 430, y: 650 }, npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 900, npc2Target: { x: 520, y: 650 } };
     }
     const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
-    const moveTo = (p: Point) => npcSafeStep(state.npc2Pos, p, step, 22);
+    const moveTo = (p: Point) => npcSafeStep(state.npc2Pos, p, step, 22, [], 1);
+    const moveToSeat = (p: Point) => {
+      const dx = p.x - state.npc2Pos.x, dy = p.y - state.npc2Pos.y, distance = Math.hypot(dx, dy) || 1;
+      return distance < 140 ? clampToRoom({ x: state.npc2Pos.x + (dx / distance) * Math.min(step, distance), y: state.npc2Pos.y + (dy / distance) * Math.min(step, distance) }) : moveTo(p);
+    };
     // Leaving: head for the entrance and step out the same door it came in, opening it on the way.
     if (state.npc2Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc2Pos.x, ENTRANCE_POSITION.y - state.npc2Pos.y) || 1;
@@ -933,7 +943,7 @@ export const useGameStore = create<GameState>((set) => ({
     if (state.npc2Seat) {
       const s = seatPos(state.npc2Seat);
       if (!state.npc2Sitting) {
-        if (Math.hypot(s.x - state.npc2Pos.x, s.y - state.npc2Pos.y) > 26) return { npc2Pos: moveTo(s) };
+        if (Math.hypot(s.x - state.npc2Pos.x, s.y - state.npc2Pos.y) > 26) return { npc2Pos: moveToSeat(s) };
         return { npc2Sitting: true, npc2Pose: Math.floor(Math.random() * 3), npc2Pos: s, npc2PauseUntil: state.elapsedMs + 5000 + Math.random() * 8000 };
       }
       if (state.elapsedMs < state.npc2PauseUntil) return state; // sitting
@@ -952,11 +962,15 @@ export const useGameStore = create<GameState>((set) => ({
   stepNpc3: (deltaMs) => set((state) => {
     if (!state.npc3Active || state.phase !== 'playing') return state;
     if (state.npc3Seat && !NPC_SEATS.some((seat) => seat.id === state.npc3Seat)) return { npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 400 };
-    if ((state.npc2Active && Math.hypot(state.npc3Pos.x - state.npc2Pos.x, state.npc3Pos.y - state.npc2Pos.y) < 48) || isBlocked(state.npc3Pos, 18)) {
+    if ((state.npc2Active && Math.hypot(state.npc3Pos.x - state.npc2Pos.x, state.npc3Pos.y - state.npc2Pos.y) < 48) || (!state.npc3Seat && isBlocked(state.npc3Pos, 18))) {
       return { npc3Pos: { x: 900, y: 620 }, npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 900, npc3Target: { x: 980, y: 620 } };
     }
     const step = 175 * (deltaMs / 1000);
-    const moveTo = (p: Point) => npcSafeStep(state.npc3Pos, p, step, 22);
+    const moveTo = (p: Point) => npcSafeStep(state.npc3Pos, p, step, 22, [], -1);
+    const moveToSeat = (p: Point) => {
+      const dx = p.x - state.npc3Pos.x, dy = p.y - state.npc3Pos.y, distance = Math.hypot(dx, dy) || 1;
+      return distance < 140 ? clampToRoom({ x: state.npc3Pos.x + (dx / distance) * Math.min(step, distance), y: state.npc3Pos.y + (dy / distance) * Math.min(step, distance) }) : moveTo(p);
+    };
     if (state.npc3Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc3Pos.x, ENTRANCE_POSITION.y - state.npc3Pos.y) || 1;
       if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true };
@@ -966,7 +980,7 @@ export const useGameStore = create<GameState>((set) => ({
     if (state.npc3Seat) {
       const s = seatPos(state.npc3Seat);
       if (!state.npc3Sitting) {
-        if (Math.hypot(s.x - state.npc3Pos.x, s.y - state.npc3Pos.y) > 26) return { npc3Pos: moveTo(s) };
+        if (Math.hypot(s.x - state.npc3Pos.x, s.y - state.npc3Pos.y) > 26) return { npc3Pos: moveToSeat(s) };
         return { npc3Sitting: true, npc3Pos: s, npc3PauseUntil: state.elapsedMs + 6000 + Math.random() * 9000 };
       }
       if (state.elapsedMs < state.npc3PauseUntil) return state;
