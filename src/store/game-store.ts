@@ -156,7 +156,7 @@ type Point = { x: number; y: number };
 /** Walkable floor. Widened so the producer can roam the open front and walk behind the desk to the window. */
 // Match the actual inner faces of the 14×10 room shell. The previous 70..1240 / 150..780 bounds were
 // inherited from the smaller prototype and created invisible walls far inside the visible room.
-const clampToRoom = (p: Point): Point => ({ x: Math.max(-55, Math.min(1335, p.x)), y: Math.max(25, Math.min(995, p.y)) });
+const clampToRoom = (p: Point): Point => ({ x: Math.max(-110, Math.min(1335, p.x)), y: Math.max(25, Math.min(995, p.y)) });
 
 // Gameplay collision is kept in the same logical coordinate space as the
 // room layout.  Small tabletop props remain decorative; these are the major
@@ -170,9 +170,11 @@ const COLLIDER_INSET = 10;
 // its collider is grown to match — otherwise characters walk through the visibly larger furniture. Wall
 // pieces aren't scaled, so they keep their footprint.
 const FURNITURE_COLLISION_SCALE = 1.4;
+const GUITAR_COLLISION_SCALE = 1.05;
 const isBlocked = (p: Point, radius = PLAYER_RADIUS) => STUDIO_OBJECTS.some((object) => {
   if (!COLLIDER_IDS.has(object.id)) return false;
-  const s = object.wall ? 1 : FURNITURE_COLLISION_SCALE;
+  const guitar = object.id === 'acousticGuitar' || object.id === 'electricGuitar';
+  const s = object.wall ? 1 : guitar ? GUITAR_COLLISION_SCALE : FURNITURE_COLLISION_SCALE;
   const cx = object.x + object.width / 2, cy = object.y + object.height / 2;
   const hw = (object.width * s) / 2, hh = (object.height * s) / 2;
   const inset = Math.min(COLLIDER_INSET, Math.min(hw, hh) * 0.22); // small tolerance so interaction stays comfortable
@@ -515,7 +517,27 @@ export const useGameStore = create<GameState>((set) => ({
   hydrateSession: (snapshot) => set((state) => {
     // Transient one-shot performance states must never persist across a load, or a save captured mid-pose
     // strands the character in it (e.g. stuck holding the ukulele, which also blocks sitting).
-    const cleaned = { ...snapshot, playingUkulele: false, ukuleleUntil: 0, phoneRinging: false } as Partial<GameSnapshot>;
+    const cleaned = {
+      ...snapshot,
+      phase: snapshot.phase === 'paused' || snapshot.phase === 'booting' ? 'playing' : snapshot.phase,
+      moveTarget: null,
+      running: false,
+      playingUkulele: false,
+      ukuleleUntil: 0,
+      phoneRinging: false,
+    } as Partial<GameState>;
+    // Migration/recovery for saves captured before furniture and seat changes. Invalid seats, furniture-
+    // embedded guests, and overlapping NPCs are moved to separate known-open floor positions on load.
+    if (cleaned.npc2Seat && !NPC_SEATS.some((seat) => seat.id === cleaned.npc2Seat)) { cleaned.npc2Seat = null; cleaned.npc2Sitting = false; }
+    if (cleaned.npc3Seat && !NPC_SEATS.some((seat) => seat.id === cleaned.npc3Seat)) { cleaned.npc3Seat = null; cleaned.npc3Sitting = false; }
+    const npc2Pos = cleaned.npc2Pos ?? state.npc2Pos;
+    const npc3Pos = cleaned.npc3Pos ?? state.npc3Pos;
+    if (cleaned.npc2Active && !cleaned.npc2Seat && isBlocked(npc2Pos, 18)) { cleaned.npc2Pos = { x: 430, y: 650 }; cleaned.npc2Target = { x: 520, y: 650 }; }
+    if (cleaned.npc3Active && !cleaned.npc3Seat && isBlocked(npc3Pos, 18)) { cleaned.npc3Pos = { x: 900, y: 620 }; cleaned.npc3Target = { x: 980, y: 620 }; }
+    if (cleaned.npc2Active && cleaned.npc3Active && Math.hypot(npc2Pos.x - npc3Pos.x, npc2Pos.y - npc3Pos.y) < 48) {
+      cleaned.npc2Pos = { x: 430, y: 650 }; cleaned.npc2Target = { x: 520, y: 650 }; cleaned.npc2Seat = null; cleaned.npc2Sitting = false;
+      cleaned.npc3Pos = { x: 900, y: 620 }; cleaned.npc3Target = { x: 980, y: 620 }; cleaned.npc3Seat = null; cleaned.npc3Sitting = false;
+    }
     const next = { ...state, ...cleaned } as GameState;
     // Safety net: a save written inside the car with no ride in flight would strand the player in a
     // room with no exit, so put them back in the studio instead.
