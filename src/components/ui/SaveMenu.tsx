@@ -14,8 +14,15 @@ export function SaveMenu() {
   const [open, setOpen] = useState(false);
   const [slots, setSlots] = useState<SaveSlot[]>([null, null, null]);
   const [overwrite, setOverwrite] = useState<number | null>(null);
+  const [resetConfirm, setResetConfirm] = useState(false);
   const state = useGameStore();
-  const openMenu = () => { setSlots(readSlots()); setOpen(true); setOverwrite(null); };
+  const openMenu = () => { setSlots(readSlots()); setOpen(true); setOverwrite(null); setResetConfirm(false); };
+  const resetGame = () => {
+    // Wipe the autosave so a fresh run doesn't rehydrate the old one, then restart from a clean slate.
+    try { window.localStorage.removeItem('mmha-save-v2'); } catch { /* storage may be disabled */ }
+    useGameStore.getState().restart();
+    setOpen(false); setResetConfirm(false);
+  };
   const write = (index: number) => {
     const h = Math.floor(state.clock.minuteOfDay / 60) % 24;
     const m = Math.floor(state.clock.minuteOfDay % 60).toString().padStart(2, '0');
@@ -33,6 +40,12 @@ export function SaveMenu() {
           <div className="flex items-center justify-between"><div>{slot ? <><p className="font-semibold text-paper">Slot {index + 1} · {slot.crystal.toUpperCase()} crystal</p><p className="mt-1 text-sm text-paper/65">{slot.timestamp} · {slot.time} · Album {Math.round(slot.albumProgress)}%</p></> : <p className="font-semibold text-paper">Slot {index + 1} · Empty</p>}</div>{slot && <button onClick={() => load(slot)} className="rounded border border-paper/40 px-3 py-1 text-sm text-paper hover:bg-paper/10">Load</button>}</div>
           <div className="mt-3">{slot ? (overwrite === index ? <span className="flex gap-2"><button onClick={() => write(index)} className="rounded bg-ember px-3 py-1 text-sm font-semibold text-night">Confirm overwrite</button><button onClick={() => setOverwrite(null)} className="text-sm text-paper/65">Cancel</button></span> : <button onClick={() => setOverwrite(index)} className="text-sm text-paper/70 hover:text-paper">Overwrite slot</button>) : <button onClick={() => write(index)} className="rounded bg-[#4f8f9c] px-3 py-1 text-sm font-semibold text-night">Create save</button>}</div>
         </div>)}</div>
+        <div className="mt-5 flex items-center justify-between border-t border-paper/15 pt-4">
+          <p className="text-xs text-paper/50">Reset wipes the current run (saved slots are kept).</p>
+          {resetConfirm
+            ? <span className="flex gap-2"><button onClick={resetGame} className="rounded bg-[#d84f59] px-3 py-1 text-sm font-semibold text-night">Confirm reset</button><button onClick={() => setResetConfirm(false)} className="text-sm text-paper/65">Cancel</button></span>
+            : <button onClick={() => setResetConfirm(true)} className="rounded border border-[#d84f59]/60 px-3 py-1 text-sm text-[#e88] hover:bg-[#d84f59]/15">Reset game</button>}
+        </div>
       </div>
     </section>}
   </>;

@@ -140,10 +140,13 @@ export const ELEVATOR_DOOR_MS = 1000;
 export const ELEVATOR_DING_MS = 1000; // before arrival
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
-export const GAME_MINUTES_PER_REAL_SECOND = 0.95; // gentler pace: time passes slowly through the night
-// The playable night runs 12:00 AM (minuteOfDay 0) → 6:00 AM, then the producer falls asleep and the day
-// rolls over (needs refill, rested). 6 AM = 360 in-game minutes.
-const MINUTES_PER_DAY = 360;
+export const GAME_MINUTES_PER_REAL_SECOND = 0.95; // gentler pace: time passes slowly
+// A full 24-hour day (minuteOfDay 0 = 12:00 AM … 1439 = 11:59 PM), so the clock reads real times across
+// the whole day/night. The day rolls over (needs refill, rested) at midnight.
+const MINUTES_PER_DAY = 1440;
+const RING_WINDOW_START = 16 * 60; // 4:00 PM — earliest the phone rings
+const RING_WINDOW_END = 23 * 60; // 11:00 PM — latest the phone rings
+const RING_INTERVAL = 8 * 60; // a ring can happen at most ~every 8 in-game hours
 const decayPerGameMinute: ProducerNeeds = { hunger: 0.12, energy: 0.12, hygiene: 0.06, social: 0.08, creativity: 0.09, love: 0.05 };
 
 /** Point-and-click navigation target. `selectId` keeps a clicked object selected while walking to it. */
@@ -679,15 +682,17 @@ export const useGameStore = create<GameState>((set) => ({
     // friend isn't already here, nothing else is prompting, and the producer isn't mid-activity.
     let phoneRinging = state.phoneRinging;
     let phoneRingCheck = state.phoneRingCheck - gameMinutes;
+    const nowMinute = (state.clock.minuteOfDay + gameMinutes) % MINUTES_PER_DAY;
+    const inRingWindow = nowMinute >= RING_WINDOW_START && nowMinute <= RING_WINDOW_END; // 4 PM – 11 PM
     if (!phoneRinging && !state.npc3Active && !state.prompt && !state.seated && !state.lyingDown && phoneRingCheck <= 0) {
-      if (Math.random() < 0.22) phoneRinging = true; // it rings
-      phoneRingCheck = 80 + Math.random() * 120; // re-check window (game-minutes)
+      if (inRingWindow) { if (Math.random() < 0.5) phoneRinging = true; phoneRingCheck = RING_INTERVAL; } // ring, then wait ~8h
+      else phoneRingCheck = 20; // outside the window — keep checking until it opens
     }
     const weatherGraph = weatherChanged && badWeather ? resolveEmotionGraph(state.emotionalGraph, [{ node: 'burnout', direction: 'up' }]) : state.emotionalGraph;
     needs = applyNeedChange(needs, Object.fromEntries(Object.entries(emotionalNeedDrift(weatherGraph)).map(([key, value]) => [key, value * gameMinutes])));
     const totalMinutes = state.clock.minuteOfDay + gameMinutes;
-    // The playable night is midnight → 6 AM; at 6 AM the producer falls asleep and a new night begins.
-    // Album progress deliberately does not appear in the reset frame, so it carries forward.
+    // A full 24-hour day; it rolls over at midnight (needs refill, rested). Album progress deliberately does
+    // not appear in the reset frame, so it carries forward.
     const dayCount = Math.floor(totalMinutes / MINUTES_PER_DAY);
     const dayFinished = dayCount > 0;
     const dailyNeeds: ProducerNeeds = { hunger: 72, energy: 70, hygiene: 66, social: 48, creativity: 62, love: 54 };
@@ -890,8 +895,10 @@ export const useGameStore = create<GameState>((set) => ({
     if (kind === 'pickup-call') {
       // Easter egg: the third friend (NPC3, smallchill) is on their way — arrives from the studio door.
       const graph = resolveEmotionGraph(state.emotionalGraph, [{ node: 'loneliness', direction: 'down' }, { node: 'hope', direction: 'up' }]);
+      // She stays 1–4 in-game hours (60–240 game-minutes → real ms via the time scale).
+      const stayMs = (60 + Math.random() * 180) / GAME_MINUTES_PER_REAL_SECOND * 1000;
       return { prompt: CALL_MESSAGE, phoneRinging: false, npc3Active: true, npc3Leaving: false, npc3Sitting: false, npc3Seat: null,
-        npc3Pos: { ...ENTRANCE_POSITION }, npc3Target: clampToRoom({ x: 520 + Math.random() * 240, y: 560 + Math.random() * 120 }), npc3PauseUntil: state.elapsedMs + 600, npc3LeaveAt: state.elapsedMs + 220000,
+        npc3Pos: { ...ENTRANCE_POSITION }, npc3Target: clampToRoom({ x: 520 + Math.random() * 240, y: 560 + Math.random() * 120 }), npc3PauseUntil: state.elapsedMs + 600, npc3LeaveAt: state.elapsedMs + stayMs,
         emotionalGraph: graph, crystal: crystalState(graph), needs: applyNeedChange(state.needs, { social: 12, love: 4 }), stress: clamp(state.stress - 6) };
     }
     if (kind === 'decline-call') return { prompt: null, phoneRinging: false };
