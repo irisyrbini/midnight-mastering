@@ -77,6 +77,8 @@ type GameState = GameSnapshot & {
   /** Where NPC 2 is currently strolling to, and when its current pause ends. */
   npc2Target: Point;
   npc2PauseUntil: number;
+  npc2StuckMs: number;         // ms Tom has spent making no headway (→ detour, same as Path)
+  npc2Detour: Point | null;    // temporary waypoint to skirt whatever Tom is snagged on
   /** Seat id NPC2 is currently heading to / sitting on (bean bag), or null while wandering; `npc2Sitting`
    *  is true once it has actually arrived and sat; `npc2Pose` is a random seated-pose seed. */
   npc2Seat: string | null;
@@ -542,6 +544,8 @@ const initialSession = () => ({
   npc2LeaveAt: 0,
   npc2Target: { x: 880, y: 560 } as Point,
   npc2PauseUntil: 0,
+  npc2StuckMs: 0,
+  npc2Detour: null as Point | null,
   npc2Seat: null as string | null,
   npc2Sitting: false,
   npc2Pose: 0,
@@ -691,6 +695,8 @@ export const useGameStore = create<GameState>((set) => ({
       phoneRinging: false,
       visitorDetour: null,
       visitorStuckMs: 0,
+      npc2Detour: null,
+      npc2StuckMs: 0,
       // Collected fragments + completion persist (they're the whole point); only the transient pickup cue
       // and the open assembly panel are reset so a load never re-fires a toast or reopens the view.
       sheetPieceCue: { id: '', n: 0 },
@@ -1118,7 +1124,7 @@ export const useGameStore = create<GameState>((set) => ({
     // Leaving: head for the entrance and step out the same door it came in, opening it on the way.
     if (state.npc2Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc2Pos.x, ENTRANCE_POSITION.y - state.npc2Pos.y) || 1;
-      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, npc2Seat: null, npc2Sitting: false, entranceOpen: true };
+      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, npc2Seat: null, npc2Sitting: false, entranceOpen: true, npc2Detour: null, npc2StuckMs: 0 };
       return { npc2Pos: moveTo(ENTRANCE_POSITION), npc2Seat: null, npc2Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
     }
     // Heading to / sitting on a sofa seat.
@@ -1126,7 +1132,7 @@ export const useGameStore = create<GameState>((set) => ({
       const s = seatPos(state.npc2Seat);
       if (!state.npc2Sitting) {
         if (Math.hypot(s.x - state.npc2Pos.x, s.y - state.npc2Pos.y) > 26) return { npc2Pos: moveToSeat(s) };
-        return { npc2Sitting: true, npc2Pose: Math.floor(Math.random() * 3), npc2Pos: s, npc2PauseUntil: state.elapsedMs + 5000 + Math.random() * 8000 };
+        return { npc2Sitting: true, npc2Pose: Math.floor(Math.random() * 3), npc2Pos: s, npc2PauseUntil: state.elapsedMs + 5000 + Math.random() * 8000, npc2Detour: null, npc2StuckMs: 0 };
       }
       if (state.elapsedMs < state.npc2PauseUntil) return state; // sitting
       return { npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 1200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
@@ -1139,12 +1145,20 @@ export const useGameStore = create<GameState>((set) => ({
       if (freeSeat && Math.random() < 0.4) return { npc2Seat: freeSeat };
       return { npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
     }
-    const npc2Pos = moveTo(state.npc2Target);
-    // Blocked route → reroute immediately to a fresh open point rather than grinding in place.
-    if (dist > 30 && Math.hypot(npc2Pos.x - state.npc2Pos.x, npc2Pos.y - state.npc2Pos.y) < step * 0.25) {
-      return { npc2Pos, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }), npc2PauseUntil: state.elapsedMs + 400 };
+    // Steer to an active detour waypoint first (it skirts whatever Tom snagged on), then resume the target.
+    const npc2Pos = moveTo(state.npc2Detour ?? state.npc2Target);
+    const moved = Math.hypot(npc2Pos.x - state.npc2Pos.x, npc2Pos.y - state.npc2Pos.y);
+    // Reached the detour waypoint → drop it and head for the real target again.
+    if (state.npc2Detour && Math.hypot(npc2Pos.x - state.npc2Detour.x, npc2Pos.y - state.npc2Detour.y) <= 40) {
+      return { npc2Pos, npc2Detour: null, npc2StuckMs: 0 };
     }
-    return { npc2Pos };
+    // Same recovery as Path: grinding with no headway for ~3s → sidestep waypoint around the obstacle.
+    if (dist > 30 && moved < step * 0.25) {
+      const stuck = state.npc2StuckMs + deltaMs;
+      if (stuck >= 3000) return { npc2Pos, npc2Detour: pickDetour(state.npc2Pos, state.npc2Target), npc2StuckMs: 0 };
+      return { npc2Pos, npc2StuckMs: stuck };
+    }
+    return state.npc2StuckMs !== 0 ? { npc2Pos, npc2StuckMs: 0 } : { npc2Pos };
   }),
   stepNpc3: (deltaMs) => set((state) => {
     if (!state.npc3Active || state.phase !== 'playing') return state;

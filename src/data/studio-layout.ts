@@ -8,7 +8,9 @@ export type StudioObject = { id: string; x: number; y: number; width: number; he
 
 /** Original bedroom-studio map. Coordinates preserve the required window → desk → bed/door composition. */
 export const STUDIO_OBJECTS: StudioObject[] = [
-  { id: 'window', x: 120, y: 70, width: 330, height: 132, color: '#31597a', shape: 'window', wall: 'back' },
+  // Slid left along the back wall so its right edge clears posters4 (which starts at x 312) — the window
+  // and the poster pair were overlapping on the same wall plane.
+  { id: 'window', x: -30, y: 70, width: 330, height: 132, color: '#31597a', shape: 'window', wall: 'back' },
   // Second window on the bed side of the room, mounted flat against the right wall.
   { id: 'window2', x: 1168, y: 170, width: 100, height: 190, color: '#31597a', shape: 'window', rotationY: -Math.PI / 2, wall: 'right' },
   // Posters clumped into a left pair and a right pair with a deliberate gap between (a lived-in wall,

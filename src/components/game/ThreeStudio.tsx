@@ -651,11 +651,12 @@ const faceYawTo = (from: Point, to: Point): number => {
 // Per-character / per-clip calibration on top of the shared anchor. Tuned by eye (see DEBUG_SEATS markers).
 // Dev-only: draw seat-surface + anchor + face-direction markers to calibrate contact by eye. Keep false.
 const DEBUG_SEATS = false;
-const JONNY_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: 0 }; // GLB sit.glb (also make-tune/drink, same rig)
-const JONNY_LIE: PoseCalib = { rootY: 0.72, rootZ: 0.2, yawOffset: 0 };  // GLB lie.glb (also doom-scroll)
-const PATH_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: 0 };  // NPC1 shadow/sit.glb + maketune.fbx
+const JONNY_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // GLB sit.glb (also make-tune/drink, same rig)
+const JONNY_LIE: PoseCalib = { rootY: 0.8, rootZ: 0.2, yawOffset: 0 };  // GLB lie.glb (also doom-scroll)
+const PATH_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 };  // NPC1 shadow/sit.glb + maketune.fbx
 const TOM_SIT: PoseCalib = { rootY: 0.12, rootZ: 0, yawOffset: 0 };      // NPC2 clap/drink FBX (own rig)
-const YEBIN_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: 0 }; // NPC3 sit.glb
+const TOM_SIT_PITCH = -0.5; // pitch the seated body back out of the clip's baked forward hunch (radians)
+const YEBIN_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // NPC3 sit.glb
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
 //    look we override it at runtime with a matte near-black material so the character reads as a moving
@@ -1295,9 +1296,13 @@ function Npc2Model() {
       const targetYaw = faceYawTo(s.npc2Pos, DESK_FACE_TARGET) + TOM_SIT.yawOffset;
       c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
       inner.current.position.set(0, TOM_SIT.rootY, TOM_SIT.rootZ);
+      // Tom's clap/drink clips bake a deep forward hunch that reads as "face-down at the floor". Pitch the
+      // seated body back so he sits upright on the cushion (his rig has no neutral seated pose to use).
+      inner.current.rotation.x = TOM_SIT_PITCH;
     }
     else {
       inner.current.position.set(0, 0, 0);
+      inner.current.rotation.x = 0;
       if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 6); }
     }
     group.current.position.set(x, 0, z);
