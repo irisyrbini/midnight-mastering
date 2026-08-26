@@ -42,6 +42,8 @@ type GameState = GameSnapshot & {
   visitorLeaveAt: number;
   visitorTarget: Point;
   visitorPauseUntil: number;
+  visitorStuckMs: number;        // ms Path has spent making no headway toward its target
+  visitorDetour: Point | null;   // a temporary waypoint to skirt an obstacle (any phase, incl. leaving)
   playingUkulele: boolean;
   ukuleleUntil: number;
   weather: WeatherKind;
@@ -166,18 +168,19 @@ const clampToRoom = (p: Point): Point => ({ x: Math.max(-110, Math.min(1335, p.x
 // obstacles the producer should walk around.
 // The studio door (`entrance`) is intentionally NOT a collider, so the producer can walk right up to it
 // (and, on the other floors, right up to the elevator) instead of being stopped short of the trigger.
-const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'acousticGuitar', 'electricGuitar', 'bed', 'miniFridge', 'bathroom', 'closet', 'sofa']);
+// The guitars are deliberately NOT colliders: they're thin instruments leaning in the front-left corner,
+// but their layout box is 156 tall, so as full-height colliders they formed an invisible wall that pinned
+// NPCs (and the player) in the narrow slot between them. They stay interactable via proximity select.
+const COLLIDER_IDS = new Set(['shelves', 'instrumentTable', 'musicDesk', 'chair', 'friendChair', 'bed', 'miniFridge', 'bathroom', 'closet', 'sofa']);
 const PLAYER_RADIUS = 14;
 const COLLIDER_INSET = 10;
 // Floor furniture is drawn ~1.4× larger than its layout footprint (FURNITURE_SCALE in the renderer), so
 // its collider is grown to match — otherwise characters walk through the visibly larger furniture. Wall
 // pieces aren't scaled, so they keep their footprint.
 const FURNITURE_COLLISION_SCALE = 1.4;
-const GUITAR_COLLISION_SCALE = 1.05;
 const isBlocked = (p: Point, radius = PLAYER_RADIUS) => STUDIO_OBJECTS.some((object) => {
   if (!COLLIDER_IDS.has(object.id)) return false;
-  const guitar = object.id === 'acousticGuitar' || object.id === 'electricGuitar';
-  const s = object.wall ? 1 : guitar ? GUITAR_COLLISION_SCALE : FURNITURE_COLLISION_SCALE;
+  const s = object.wall ? 1 : FURNITURE_COLLISION_SCALE;
   const cx = object.x + object.width / 2, cy = object.y + object.height / 2;
   const hw = (object.width * s) / 2, hh = (object.height * s) / 2;
   const inset = Math.min(COLLIDER_INSET, Math.min(hw, hh) * 0.22); // small tolerance so interaction stays comfortable
@@ -268,6 +271,22 @@ const pickVisitorSpot = (from: Point): Point => {
   if (Math.random() < 0.55) return SYNTH_PERFORMANCE_ANCHOR; // home base, most of the time
   const spots = NPC1_IDLE_SPOTS.filter((p) => !isBlocked(p) && Math.hypot(p.x - from.x, p.y - from.y) > 60);
   return spots.length ? spots[Math.floor(Math.random() * spots.length)] : SYNTH_PERFORMANCE_ANCHOR;
+};
+
+/** A short sidestep waypoint to escape a spot where the direct route to `target` is blocked. Samples a ring
+ *  of open floor points around `from` and keeps the one that best advances toward `target` (so the detour
+ *  actually skirts the obstacle rather than wandering off). Falls back to any open point, then to `from`. */
+const pickDetour = (from: Point, target: Point, radius = 130): Point => {
+  let best: Point | null = null;
+  let bestScore = Infinity;
+  for (let i = 0; i < 16; i += 1) {
+    const angle = (i / 16) * Math.PI * 2;
+    const p = clampToRoom({ x: from.x + Math.cos(angle) * radius, y: from.y + Math.sin(angle) * radius });
+    if (isBlocked(p, 22)) continue;
+    const score = Math.hypot(p.x - target.x, p.y - target.y); // prefer the open point closest to the goal
+    if (score < bestScore) { bestScore = score; best = p; }
+  }
+  return best ?? from;
 };
 
 /** Where the producer sits / lies when using the chair / bed. */
@@ -431,6 +450,8 @@ const initialSession = () => ({
   // NPC1 wander: where Path is currently headed while idling, and when its current pause ends.
   visitorTarget: { ...SYNTH_PERFORMANCE_ANCHOR } as Point,
   visitorPauseUntil: 0,
+  visitorStuckMs: 0,
+  visitorDetour: null as Point | null,
   // The producer is holding + playing the ukulele until this elapsedMs (one-shot performance).
   playingUkulele: false,
   ukuleleUntil: 0,
@@ -528,6 +549,8 @@ export const useGameStore = create<GameState>((set) => ({
       playingUkulele: false,
       ukuleleUntil: 0,
       phoneRinging: false,
+      visitorDetour: null,
+      visitorStuckMs: 0,
     } as Partial<GameState>;
     // Migration/recovery for saves captured before furniture and seat changes. Invalid seats, furniture-
     // embedded guests, and overlapping NPCs are moved to separate known-open floor positions on load.
@@ -940,15 +963,29 @@ export const useGameStore = create<GameState>((set) => ({
     }
     // Treat the other guests as soft obstacles so Path and Tom don't pin each other in a doorway.
     const others = [state.npc2Active ? state.npc2Pos : null, state.npc3Active ? state.npc3Pos : null].filter(Boolean) as Point[];
-    if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true }; // opens the door and steps out
-    if (goingHome && dist <= 120) { const vp = npcSafeStep(state.visitorPos, target, step, 22, others, -1); return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
-    const visitorPos = npcSafeStep(state.visitorPos, target, step, 22, others, -1);
-    // Reroute fast: if a step made no headway while still far from the target, that route is blocked —
-    // pick a fresh wander spot this tick instead of grinding against the obstacle forever.
-    if (!goingHome && !state.friendActivity && dist > 44 && Math.hypot(visitorPos.x - state.visitorPos.x, visitorPos.y - state.visitorPos.y) < step * 0.25) {
-      return { visitorPos, visitorTarget: pickVisitorSpot(state.visitorPos), visitorPauseUntil: state.elapsedMs + 400 };
+    if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true, visitorDetour: null, visitorStuckMs: 0 }; // opens the door and steps out
+    // When a detour waypoint is active, steer to it first (it skirts whatever Path was stuck on), then resume.
+    const moveTarget = state.visitorDetour ?? target;
+    const visitorPos = npcSafeStep(state.visitorPos, moveTarget, step, 22, others, -1);
+    const moved = Math.hypot(visitorPos.x - state.visitorPos.x, visitorPos.y - state.visitorPos.y);
+    const patch: Partial<GameState> = { visitorPos };
+    if (goingHome && dist <= 120) patch.entranceOpen = true; // open the door as they approach it
+    // Reached the detour waypoint → drop it and head for the real target again.
+    if (state.visitorDetour && Math.hypot(visitorPos.x - state.visitorDetour.x, visitorPos.y - state.visitorDetour.y) <= 40) {
+      patch.visitorDetour = null; patch.visitorStuckMs = 0;
+      return patch;
     }
-    return { visitorPos };
+    // Stuck detection: if Path grinds against something (no headway) for ~3s while still far from the
+    // target, pick a sidestep waypoint that skirts the obstacle. Works in every phase — wandering,
+    // heading to the player, or leaving — so it can never be permanently trapped.
+    if (dist > 44 && moved < step * 0.25) {
+      const stuck = state.visitorStuckMs + deltaMs;
+      if (stuck >= 3000) { patch.visitorDetour = pickDetour(state.visitorPos, target); patch.visitorStuckMs = 0; }
+      else patch.visitorStuckMs = stuck;
+    } else if (state.visitorStuckMs !== 0) {
+      patch.visitorStuckMs = 0;
+    }
+    return patch;
   }),
   /**
    * NPC 2 strolls the room between real destinations instead of tracing a fixed curve: it walks to a
