@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { Suspense, useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
-import { STUDIO_OBJECTS, SYNTH_CENTER, type StudioObject } from '@/data/studio-layout';
+import { STUDIO_OBJECTS, SYNTH_CENTER, objectCenter, objectById, type StudioObject, type Point } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
 import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, nearestCollectablePiece, useGameStore } from '@/store/game-store';
 import { SHEET_PIECE_IDS, pieceIndex } from '@/data/sheet-music';
@@ -624,17 +624,38 @@ const FBX_MAKETUNE = '/models/maketune.fbx'; // seated collaboration performance
 const FBX_UKULELE = '/models/ukulele.fbx'; // Ukulele performance (standing, strumming)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
-// Root placement for the real seated / lying clips (the clip poses the body; we only place the root).
-// Raised to meet the enlarged (FURNITURE_SCALE) chair seat and mattress.
-// Per-pose seat height: the GLB `sit` clip and the FBX `tune`/`drink` clips lower the pelvis to DIFFERENT
-// heights, so each gets its own root Y to land the butt on the chair seat (~0.84 world) with feet ~on the
-// floor. Tuned by eye against the current chair + character scale.
-const SEAT_ROOT_Y = 0.24; // GLB sit clip — raised to meet the enlarged (CHAIR_SCALE) seat
-const SEAT_FACE = Math.PI; // seated yaw so the body faces the desk (tuned against the sit clip's baked turn)
-const SEAT_ROOT_Z = -0.1; // settle back into the chair
-const LIE_ROOT_Y = 0.72; // scaled root rests just above the duvet so the body no longer intersects the bed
-const LIE_ROOT_Z = 0.2; // slide toward the pillow / headboard end
-const LIE_YAW = Math.PI; // rotate lying + doom-scroll another 90° so Jonny's head points toward the pillow end
+
+// ── Seated / lying alignment system ───────────────────────────────────────────────────────────────────
+// A character on furniture is placed as:   FURNITURE ANCHOR  +  CHARACTER/CLIP CALIBRATION.
+//  • The furniture anchor (logical pos + a face target) is DERIVED from the object in studio-layout, so it
+//    moves and re-aims with the furniture — never a raw world coordinate.
+//  • The renderer converts the anchor to world x/z, aims the body at the face target (DERIVED yaw, not a
+//    hardcoded rotation), then applies the character/clip calibration below to land the pelvis on the seat.
+// `rootY` lifts the pelvis onto the (scaled) seat; `rootZ` settles it back into the seat; `yawOffset`
+// corrects any turn the clip bakes into the body (0 = the clip already faces the anchor's target).
+type PoseCalib = { rootY: number; rootZ: number; yawOffset: number };
+
+// What a seated character should face: the desk (its equipment). Object-derived → tracks the desk if moved.
+const DESK_FACE_TARGET: Point = objectCenter('musicDesk');
+// Lying orientation follows the bed's own rotation so the head stays at the pillow end if the bed is moved.
+const BED_LIE_YAW = (objectById('bed')?.rotationY ?? 0) + Math.PI / 2;
+
+// World-space yaw that makes a character standing at `from` face `to`, in the renderer's yaw convention
+// (matches the walking heading: atan2(dx,dz)+MODEL_FORWARD). Used to derive every seated facing.
+const faceYawTo = (from: Point, to: Point): number => {
+  const [fx, fz] = toWorld(from.x, from.y);
+  const [tx, tz] = toWorld(to.x, to.y);
+  return Math.atan2(tx - fx, tz - fz) + MODEL_FORWARD;
+};
+
+// Per-character / per-clip calibration on top of the shared anchor. Tuned by eye (see DEBUG_SEATS markers).
+// Dev-only: draw seat-surface + anchor + face-direction markers to calibrate contact by eye. Keep false.
+const DEBUG_SEATS = false;
+const JONNY_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: 0 }; // GLB sit.glb (also make-tune/drink, same rig)
+const JONNY_LIE: PoseCalib = { rootY: 0.72, rootZ: 0.2, yawOffset: 0 };  // GLB lie.glb (also doom-scroll)
+const PATH_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: 0 };  // NPC1 shadow/sit.glb + maketune.fbx
+const TOM_SIT: PoseCalib = { rootY: 0.12, rootZ: 0, yawOffset: 0 };      // NPC2 clap/drink FBX (own rig)
+const YEBIN_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: 0 }; // NPC3 sit.glb
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
 //    look we override it at runtime with a matte near-black material so the character reads as a moving
@@ -852,12 +873,15 @@ function PlayerModel() {
     // Root transform per pose. The parent <Player> group already sits at the chair/bed (playerPosition
     // is SIT_POSITION / LIE_POSITION); the clip poses the body, we only place + orient the root.
     if (lying) {
-      g.position.set(0, LIE_ROOT_Y, LIE_ROOT_Z);
-      c.facing += (LIE_YAW - c.facing) * ease;
+      g.position.set(0, JONNY_LIE.rootY, JONNY_LIE.rootZ);
+      const targetYaw = BED_LIE_YAW + JONNY_LIE.yawOffset; // head to the pillow end (bed-relative)
+      c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
       g.rotation.set(0, c.facing, 0);
     } else if (seated) {
-      g.position.set(0, SEAT_ROOT_Y, SEAT_ROOT_Z);
-      c.facing += (SEAT_FACE - c.facing) * ease; // face the desk
+      g.position.set(0, JONNY_SIT.rootY, JONNY_SIT.rootZ);
+      // Face the desk from wherever the player is seated (chair / sofa / bean bag), derived — not hardcoded.
+      const targetYaw = faceYawTo(s.playerPosition, DESK_FACE_TARGET) + JONNY_SIT.yawOffset;
+      c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
       g.rotation.set(0, c.facing, 0);
     } else {
       g.position.set(0, 0, 0);
@@ -1060,11 +1084,13 @@ function Npc1Model() {
     // Face travel while walking, the producer during a seated activity, else the synth controls it plays.
     // NPC1 now stands at the performance anchor IN FRONT of the rack, so it simply faces the synth centre.
     let tx = sx - vx, tz = sz - vz;
-    if (s.friendActivity) { tx = px - vx; tz = pz - vz; } else if (moving) { tx = dx; tz = dz; }
-    const target = Math.atan2(tx, tz) + MODEL_FORWARD;
+    if (s.friendActivity) { const [dtx, dtz] = toWorld(DESK_FACE_TARGET.x, DESK_FACE_TARGET.y); tx = dtx - vx; tz = dtz - vz; } // seated collab: face the desk, like the player beside
+    else if (moving) { tx = dx; tz = dz; }
+    const target = Math.atan2(tx, tz) + (s.friendActivity ? PATH_SIT.yawOffset : MODEL_FORWARD);
     const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing));
     c.facing += diff * Math.min(1, dt * 6);
-    group.current.position.set(vx, 0, vz);
+    // Lift the pelvis onto the friend-chair seat while seated (was sitting at floor height, root Y = 0).
+    group.current.position.set(vx, s.friendActivity ? PATH_SIT.rootY : 0, vz);
     group.current.rotation.y = c.facing;
     // Clip: a held seated pose during any friend activity (tune/vodka differentiated by the FX/prop
     // overlays), walk while moving, else the idle base pose (standing at the synth).
@@ -1231,10 +1257,6 @@ const NPC2_MESH = '/models/bigfreq/idle.fbx'; // redesigned mesh + idle pose (ri
 const NPC2_WALK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx';
 const NPC2_CLAP = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sitting_Clap_withSkin.fbx';
 const NPC2_DRINK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sit_and_Drink_withSkin.fbx';
-const NPC2_SEAT_Y = 0.12; // lift the seated FBX onto the sofa cushion
-// The clap/drink FBX clips are authored on Tom's own rig with a baked body yaw, so the seated group needs
-// this extra turn (on top of the room-facing π) to actually face the room instead of sitting sideways.
-const NPC2_SEAT_FACE = Math.PI;
 const NPC2_TARGET_HEIGHT = 3.0; // world units — Tom reads a touch taller than Jonny's ~2.89
 const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
 
@@ -1253,7 +1275,7 @@ function Npc2Model() {
     return { scene: root, modelScale: heightScale(root, NPC2_TARGET_HEIGHT) };
   }, [meshFbx, silhouette]);
   // idle native (root kept); walk lifted from a different-axis export (root dropped, upright); the two
-  // seated poses (Tom's own rig) are quaternion-only and placed on the sofa via NPC2_SEAT_Y.
+  // seated poses (Tom's own rig) are quaternion-only and placed on the sofa via the TOM_SIT calibration.
   const clips = useMemo(() => [fbxPick(meshFbx, 'idle'), fbxPick(walkFbx, 'walk', false, true), fbxPick(clapFbx, 'clap'), fbxPick(drinkFbx, 'drink')].filter(Boolean) as THREE.AnimationClip[], [meshFbx, walkFbx, clapFbx, drinkFbx]);
   const inner = useRef<THREE.Group>(null);
   const group = useRef<THREE.Group>(null);
@@ -1269,7 +1291,11 @@ function Npc2Model() {
     const sitting = s.npc2Sitting;
     const moving = !sitting && Math.hypot(dx, dz) > 0.0015;
     const ease = Math.min(1, dt * 10);
-    if (sitting) { c.facing += (NPC2_SEAT_FACE - c.facing) * ease; inner.current.position.set(0, NPC2_SEAT_Y, 0); } // seated, faces the room (−z), same convention as the other characters
+    if (sitting) { // seated on the sofa: face the room/desk (derived), pelvis on the cushion via TOM_SIT
+      const targetYaw = faceYawTo(s.npc2Pos, DESK_FACE_TARGET) + TOM_SIT.yawOffset;
+      c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
+      inner.current.position.set(0, TOM_SIT.rootY, TOM_SIT.rootZ);
+    }
     else {
       inner.current.position.set(0, 0, 0);
       if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 6); }
@@ -1352,9 +1378,10 @@ function Npc3Model() {
       if (next) { next.reset(); const once = want === 'sit'; next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); next.clampWhenFinished = once; next.fadeIn(0.2).play(); }
       c.clip = want;
     }
-    if (sitting) {
-      inner.current.position.set(0, SEAT_ROOT_Y, SEAT_ROOT_Z);
-      c.facing += (Math.PI - c.facing) * ease; // seated, facing into the room (−z)
+    if (sitting) { // seated on the sofa/bean bag: face the room/desk (derived), pelvis on the seat via YEBIN_SIT
+      inner.current.position.set(0, YEBIN_SIT.rootY, YEBIN_SIT.rootZ);
+      const targetYaw = faceYawTo(s.npc3Pos, DESK_FACE_TARGET) + YEBIN_SIT.yawOffset;
+      c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
     } else {
       inner.current.position.set(0, 0, 0);
       if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 8); }
@@ -1568,6 +1595,32 @@ function FloatingFragments() {
   return <>{ids.map((id) => <FloatingFragment key={id} id={id} />)}</>;
 }
 
+/** Dev-only calibration markers (DEBUG_SEATS): a magenta sphere at each seat anchor's approx seat-surface
+ *  height and a cyan arrow toward its face target, plus the bed lie anchor. Lets contact + facing be judged
+ *  by eye against the seated body. Not rendered in normal play. */
+function SeatDebug() {
+  if (!DEBUG_SEATS) return null;
+  const sofaC = objectCenter('sofa');
+  const seats: { pos: Point; face: Point | null; y: number; label: string }[] = [
+    { pos: objectCenter('chair'), face: DESK_FACE_TARGET, y: 0.9, label: 'chair' },
+    { pos: objectCenter('friendChair'), face: DESK_FACE_TARGET, y: 0.9, label: 'friendChair' },
+    { pos: { x: sofaC.x - 88, y: sofaC.y }, face: DESK_FACE_TARGET, y: 0.95, label: 'sofaL' },
+    { pos: sofaC, face: DESK_FACE_TARGET, y: 0.95, label: 'sofaM' },
+    { pos: { x: sofaC.x + 88, y: sofaC.y }, face: DESK_FACE_TARGET, y: 0.95, label: 'sofaR' },
+    { pos: objectCenter('bed'), face: null, y: 0.7, label: 'bed' },
+  ];
+  return <>{seats.map((s) => {
+    const [wx, wz] = toWorld(s.pos.x, s.pos.y);
+    const yaw = s.face ? faceYawTo(s.pos, s.face) : BED_LIE_YAW;
+    return <group key={s.label} position={[wx, 0, wz]}>
+      <mesh position={[0, s.y, 0]}><sphereGeometry args={[0.06, 12, 12]} /><meshBasicMaterial color="#ff33cc" /></mesh>
+      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.28, 0.34, 24]} /><meshBasicMaterial color="#ff33cc" transparent opacity={0.7} /></mesh>
+      <group rotation={[0, yaw, 0]}><mesh position={[0, s.y, 0.4]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.02, 0.02, 0.8, 8]} /><meshBasicMaterial color="#22e6ff" /></mesh>
+        <mesh position={[0, s.y, 0.82]} rotation={[Math.PI / 2, 0, 0]}><coneGeometry args={[0.06, 0.14, 10]} /><meshBasicMaterial color="#22e6ff" /></mesh></group>
+    </group>;
+  })}</>;
+}
+
 /** Desk lamp: a warm amber practical + its little articulated prop, at the desk's back-left corner. It
  *  gives the CREATION zone its own warm pool of light against the cool monitors (lighting hierarchy). */
 function DeskLamp() {
@@ -1628,7 +1681,7 @@ function Room() {
     <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[-0.25 * ROOM_SCALE, 6.15, 0]}><boxGeometry args={[14.5 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
-    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><FloatingFragments /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
+    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><FloatingFragments /><SeatDebug /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;
 }
 
