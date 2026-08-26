@@ -654,8 +654,8 @@ const DEBUG_SEATS = false;
 const JONNY_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // GLB sit.glb (also make-tune/drink, same rig)
 const JONNY_LIE: PoseCalib = { rootY: 0.8, rootZ: 0.2, yawOffset: 0 };  // GLB lie.glb (also doom-scroll)
 const PATH_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 };  // NPC1 shadow/sit.glb + maketune.fbx
-const TOM_SIT: PoseCalib = { rootY: 0.12, rootZ: 0, yawOffset: 0 };      // NPC2 clap/drink FBX (own rig)
-const TOM_SIT_PITCH = -0.5; // pitch the seated body back out of the clip's baked forward hunch (radians)
+const TOM_SIT: PoseCalib = { rootY: 0.12, rootZ: 0, yawOffset: Math.PI };   // NPC2 clap/drink FBX (own rig)
+const TOM_SIT_PITCH = 0; // the clap/drink clips are already an upright standing pose - no pitch correction needed
 const YEBIN_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // NPC3 sit.glb
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
