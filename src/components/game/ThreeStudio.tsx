@@ -9,7 +9,8 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { Suspense, useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { STUDIO_OBJECTS, SYNTH_CENTER, type StudioObject } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
-import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, useGameStore } from '@/store/game-store';
+import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, nearestCollectablePiece, useGameStore } from '@/store/game-store';
+import { SHEET_PIECE_IDS, pieceIndex } from '@/data/sheet-music';
 import { RoomObjectModel, DESK_Y, DESK_Z_OFFSET, DESKTOP_IDS, TABLE2_Y, TABLE_IDS } from './RoomObjectModel';
 import { playElevatorDing, playModularPatch } from '@/game/audio/sfx';
 import { dayCycle } from '@/game/simulation/day-cycle';
@@ -1476,6 +1477,97 @@ function ForegroundClutter() {
   </group>;
 }
 
+// ── Floating torn sheet-music fragments. Once an object's first interaction has REVEALED its fragment (see
+//    the store's reveal/collect lifecycle), a torn paper piece hangs in the air above that object — gently
+//    bobbing, swaying and turning — until the player walks up and collects it (click, or [Enter] in range).
+//    Each fragment carries a unique torn shape + notation drawn to a canvas texture. ──
+
+const FRAGMENT_HEIGHT: Record<string, number> = {
+  window: 2.2, shelves: 2.05, acousticGuitar: 1.95, electricGuitar: 1.95, modularSynths: 1.55, miniFridge: 1.6,
+  bed: 0.95, ukulele: 1.15, dualMonitors: 1.78, studioMonitors: 1.62, portasound: 1.35, sk5: 1.35, switch: 1.32, lyricNotebook: 1.5,
+};
+const fragmentHeight = (id: string) => FRAGMENT_HEIGHT[id] ?? 1.5;
+
+/** A unique torn-paper texture per fragment: irregular ripped alpha edge, aged paper with a little crumple,
+ *  partial staff lines and a few notes. Cached by piece index so it's built once. */
+const fragmentTextureCache = new Map<number, THREE.CanvasTexture>();
+function fragmentTexture(index: number): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const cached = fragmentTextureCache.get(index);
+  if (cached) return cached;
+  const W = 240, H = 190;
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const g = canvas.getContext('2d'); if (!g) return null;
+  let s = (0x9e3779b9 + index * 0x6d2b79f5) | 0;
+  const rnd = () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const pad = 16; const pts: [number, number][] = [];
+  const edge = (from: [number, number], to: [number, number], n: number, amp: number) => {
+    for (let i = 0; i < n; i += 1) { const tt = i / n; pts.push([from[0] + (to[0] - from[0]) * tt + (rnd() - 0.5) * amp, from[1] + (to[1] - from[1]) * tt + (rnd() - 0.5) * amp]); }
+  };
+  edge([pad, pad], [W - pad, pad], 11, 8); edge([W - pad, pad], [W - pad, H - pad], 8, 8); edge([W - pad, H - pad], [pad, H - pad], 11, 8); edge([pad, H - pad], [pad, pad], 8, 8);
+  const trace = () => { g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath(); };
+  trace(); g.save(); g.clip();
+  const grad = g.createLinearGradient(0, 0, W, H); grad.addColorStop(0, '#f4ecd6'); grad.addColorStop(1, '#e1d5b3'); g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  g.globalAlpha = 0.09; for (let i = 0; i < 5; i += 1) { g.fillStyle = rnd() > 0.5 ? '#ffffff' : '#8f8564'; g.save(); g.translate(rnd() * W, rnd() * H); g.rotate((rnd() - 0.5) * 1.4); g.fillRect(-70, -3, 140, 6); g.restore(); } g.globalAlpha = 1;
+  g.strokeStyle = 'rgba(50,46,28,0.6)'; g.lineWidth = 1.3;
+  const y0 = H * 0.32; for (let i = 0; i < 3; i += 1) { const y = y0 + i * 15; g.beginPath(); g.moveTo(pad + 6, y); g.lineTo(W - pad - 6, y); g.stroke(); }
+  g.fillStyle = '#2c2818'; g.strokeStyle = '#2c2818'; g.lineWidth = 1.6;
+  for (let i = 0; i < 4; i += 1) { const nx = pad + 24 + i * 46 + rnd() * 8; const ny = y0 + (rnd() * 3 | 0) * 15 + (rnd() - 0.5) * 6; g.save(); g.translate(nx, ny); g.rotate(-0.35); g.beginPath(); g.ellipse(0, 0, 5.6, 4, 0, 0, Math.PI * 2); g.fill(); g.restore(); g.beginPath(); g.moveTo(nx + 5, ny); g.lineTo(nx + 5, ny - 25); g.stroke(); }
+  g.restore();
+  trace(); g.lineWidth = 3; g.strokeStyle = 'rgba(120,105,70,0.5)'; g.stroke(); // darker rim just inside the tear
+  const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 4; tex.needsUpdate = true;
+  fragmentTextureCache.set(index, tex); return tex;
+}
+
+function FloatingFragment({ id }: { id: string }) {
+  const collectPiece = useGameStore((s) => s.collectPiece);
+  const active = useGameStore((s) => s.collectableInRangeId === id);
+  const obj = useMemo(() => STUDIO_OBJECTS.find((o) => o.id === id), [id]);
+  const tex = useMemo(() => fragmentTexture(pieceIndex(id)), [id]);
+  const bob = useRef<THREE.Group>(null);
+  const phase = useRef(Math.random() * Math.PI * 2);
+  useFrame((state) => {
+    const grp = bob.current; if (!grp) return;
+    const t = state.clock.elapsedTime + phase.current;
+    grp.position.y = Math.sin(t * 1.1) * 0.075;      // slow vertical bob
+    grp.rotation.z = Math.sin(t * 0.85) * 0.14;      // paper sway
+    grp.rotation.y = Math.sin(t * 0.5) * 0.6 + t * 0.05; // slow irregular turn
+    grp.scale.setScalar(active ? 1.1 + Math.sin(t * 4) * 0.03 : 1);
+  });
+  if (!obj) return null;
+  const [wx, wz] = toWorld(obj.x + obj.width / 2, obj.y + obj.height / 2);
+  const y = fragmentHeight(id);
+  return (
+    <group position={[wx, y, wz]}>
+      <group ref={bob}>
+        <mesh onClick={(e) => { e.stopPropagation(); collectPiece(id); }}
+          onPointerOver={() => { if (typeof document !== 'undefined') document.body.style.cursor = 'pointer'; }}
+          onPointerOut={() => { if (typeof document !== 'undefined') document.body.style.cursor = ''; }}>
+          <planeGeometry args={[0.6, 0.48]} />
+          <meshStandardMaterial map={tex ?? undefined} emissiveMap={tex ?? undefined} emissive="#d8c79c"
+            emissiveIntensity={active ? 0.55 : 0.3} transparent alphaTest={0.5} side={THREE.DoubleSide} roughness={0.95} />
+        </mesh>
+        <pointLight color="#ead9a8" intensity={active ? 1.1 : 0.55} distance={1.5} />
+      </group>
+      {active && <Html center position={[0, 0.42, 0]} distanceFactor={7}>
+        <div className="pointer-events-none rounded bg-night/90 px-2 py-1 text-[10px] tracking-[0.12em] text-paper whitespace-nowrap shadow-lg">[Enter] Collect</div>
+      </Html>}
+    </group>
+  );
+}
+
+/** Renders every revealed-but-uncollected fragment, and each frame reports the nearest one within reach to
+ *  the store so the prompt + the Enter handler agree on what would be collected. */
+function FloatingFragments() {
+  const revealed = useGameStore((s) => s.sheetMusicRevealed);
+  const collected = useGameStore((s) => s.sheetMusicPieces);
+  const setInRange = useGameStore((s) => s.setCollectableInRange);
+  useFrame(() => setInRange(nearestCollectablePiece(useGameStore.getState())));
+  useEffect(() => () => setInRange(null), [setInRange]); // clear when leaving the room
+  const ids = SHEET_PIECE_IDS.filter((id) => revealed[id] && !collected[id]);
+  return <>{ids.map((id) => <FloatingFragment key={id} id={id} />)}</>;
+}
+
 /** Desk lamp: a warm amber practical + its little articulated prop, at the desk's back-left corner. It
  *  gives the CREATION zone its own warm pool of light against the cool monitors (lighting hierarchy). */
 function DeskLamp() {
@@ -1536,7 +1628,7 @@ function Room() {
     <mesh position={[7 * ROOM_SCALE, 3.1, 0]}><boxGeometry args={[0.18, 6.2, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#202c42" transparent opacity={0.16} depthWrite={false} /></mesh>
     <mesh position={[-0.25 * ROOM_SCALE, 6.15, 0]}><boxGeometry args={[14.5 * ROOM_SCALE, 0.12, 10 * ROOM_SCALE]} /><meshStandardMaterial color="#33507a" transparent opacity={0.22} depthWrite={false} /></mesh>
     {/* Weather stays outdoors: rain is drawn inside the window unit, never in the room volume. */}
-    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
+    {STUDIO_OBJECTS.map((object) => <RoomObject key={object.id} object={object} />)}<ForegroundClutter /><FloatingFragments /><DeskLamp /><Player /><Visitor /><Npc2 /><Npc3 /><CelebrationFX active={chapterCelebration} /><CameraRig />
   </>;
 }
 

@@ -59,6 +59,8 @@ export function GameShell() {
         if (state.activeVideoId) { state.closeVideo(); return; }
         if (state.friendMenuOpen) { state.closeFriendMenu(); return; }
         if (state.dawOpen) { state.setDawOpen(false); return; }
+        // A floating sheet-music fragment within reach takes priority: Enter picks it up.
+        if (state.collectableInRangeId) { state.collectNearestPiece(); return; }
         if (state.selectedObjectId === 'visitor') { state.openFriendMenu(); return; }
         if (state.selectedObjectId) state.interact(state.selectedObjectId);
         return;

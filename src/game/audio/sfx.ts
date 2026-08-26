@@ -267,6 +267,24 @@ export function playPaperPickup() {
   pluck(ac, 1174.66, t + 0.04, 0.5, 'sine', 0.4, 5000); // a soft, distant note settling in
 }
 
+/** A fragment appearing in the air above an object: a soft, brief paper unfurl + a faint high shimmer, so
+ *  the reveal registers without pulling focus. Quieter and airier than the pickup. */
+export function playPaperReveal() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const dur = 0.14;
+  const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let j = 0; j < data.length; j += 1) data[j] = (Math.random() * 2 - 1) * (1 - j / data.length);
+  const src = ac.createBufferSource(); src.buffer = buffer;
+  const filter = ac.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 2600; filter.Q.value = 0.7;
+  const gain = ac.createGain(); gain.gain.value = 0.04;
+  src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+  src.start(t);
+  pluck(ac, 1567.98, t + 0.05, 0.7, 'sine', 0.28, 6000); // faint distant shimmer
+}
+
 /** The whole torn score reassembling — a quiet, warm resolving chord (major, low velocity). Deliberately
  *  understated: a held breath, not a fanfare. */
 export function playSheetComplete() {

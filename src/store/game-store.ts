@@ -21,9 +21,16 @@ type GameState = GameSnapshot & {
   albumCompleted: boolean;
   // Torn sheet-music puzzle: which objects have yielded their fragment (persistent), whether the whole
   // page has been reassembled, a one-shot cue for the pickup toast/sound, and the assembly-view toggle.
+  // Per-object fragment lifecycle, persisted separately: first interaction done → fragment revealed
+  // (floating in the world) → collected. A revealed-but-uncollected fragment survives save/load and
+  // leaving the room. `sheetMusicPieces` is the collected set (the assembled puzzle).
+  sheetFirstInteracted: Record<string, boolean>;
+  sheetMusicRevealed: Record<string, boolean>;
   sheetMusicPieces: Record<string, boolean>;
   sheetMusicComplete: boolean;
-  sheetPieceCue: SfxCue;
+  sheetPieceCue: SfxCue;   // fired on COLLECT (drives the pickup toast + sound)
+  sheetRevealCue: SfxCue;  // fired when a fragment first spawns (subtle reveal sound)
+  collectableInRangeId: string | null; // nearest floating fragment within reach (transient; set by renderer)
   sheetMusicOpen: boolean;
   confidence: number;
   environment: number;
@@ -135,6 +142,9 @@ type GameState = GameSnapshot & {
   restart: () => void;
   tick: (deltaMs: number) => void;
   interact: (interactionId: string) => void;
+  collectPiece: (id: string) => void;
+  collectNearestPiece: () => void;
+  setCollectableInRange: (id: string | null) => void;
   openSheetMusic: () => void;
   closeSheetMusic: () => void;
 };
@@ -332,15 +342,49 @@ const INSTRUMENT_BONUS: Record<string, number> = { acousticGuitar: 2.2, electric
 const REQUIRED_INSTRUMENT_COUNT = INSTRUMENT_IDS.size;
 const allInstrumentsUsed = (used: Record<string, boolean>) => [...INSTRUMENT_IDS].every((id) => used[id]);
 
-// Torn sheet-music fragments. The FIRST successful interaction with an eligible object tears its fragment
-// loose exactly once; the reward is persistent (saved in sheetMusicPieces), so reloading can't duplicate
-// it. Returns the state patch to merge, or {} when nothing new is collected.
+// Torn sheet-music fragments. The FIRST completed interaction with an eligible object REVEALS its fragment
+// (it spawns floating above the object) but does NOT collect it — the player must walk up and pick it up.
+// Reveal/collect are tracked separately and persistently, so a revealed-but-uncollected fragment is still
+// floating there after leaving the room or reloading, and can never be duplicated or re-revealed.
 const SHEET_PIECE_SET = new Set(SHEET_PIECE_IDS);
-const awardSheetPiece = (state: GameState, interactionId: string): Partial<GameState> => {
-  if (!SHEET_PIECE_SET.has(interactionId) || state.sheetMusicPieces[interactionId]) return {};
-  const sheetMusicPieces = { ...state.sheetMusicPieces, [interactionId]: true };
-  const sheetMusicComplete = collectedCount(sheetMusicPieces) >= SHEET_PIECE_TOTAL;
-  return { sheetMusicPieces, sheetMusicComplete, sheetPieceCue: { id: interactionId, n: state.sheetPieceCue.n + 1 } };
+const COLLECT_RADIUS = 118; // logical units: how close the player must be to pick a floating fragment up
+
+const revealSheetPiece = (state: GameState, interactionId: string): Partial<GameState> => {
+  if (!SHEET_PIECE_SET.has(interactionId)) return {};
+  if (state.sheetMusicPieces[interactionId] || state.sheetMusicRevealed[interactionId]) return {}; // already out or collected
+  return {
+    sheetFirstInteracted: { ...state.sheetFirstInteracted, [interactionId]: true },
+    sheetMusicRevealed: { ...state.sheetMusicRevealed, [interactionId]: true },
+    sheetRevealCue: { id: interactionId, n: state.sheetRevealCue.n + 1 },
+  };
+};
+
+/** Move a revealed fragment out of the world and into the collected puzzle. Fires the pickup cue (toast +
+ *  sound) and flags completion when the last fragment lands. No-op if it isn't a floating fragment. */
+const collectPiecePatch = (state: GameState, id: string): Partial<GameState> | null => {
+  if (!SHEET_PIECE_SET.has(id) || !state.sheetMusicRevealed[id] || state.sheetMusicPieces[id]) return null;
+  const sheetMusicPieces = { ...state.sheetMusicPieces, [id]: true };
+  const sheetMusicRevealed = { ...state.sheetMusicRevealed, [id]: false };
+  return {
+    sheetMusicPieces,
+    sheetMusicRevealed,
+    sheetMusicComplete: collectedCount(sheetMusicPieces) >= SHEET_PIECE_TOTAL,
+    sheetPieceCue: { id, n: state.sheetPieceCue.n + 1 },
+    collectableInRangeId: state.collectableInRangeId === id ? null : state.collectableInRangeId,
+  };
+};
+
+/** The nearest floating (revealed, uncollected) fragment within reach of the player, or null. */
+export const nearestCollectablePiece = (state: GameState): string | null => {
+  let best: string | null = null;
+  let bestDist = COLLECT_RADIUS;
+  for (const id of SHEET_PIECE_IDS) {
+    if (!state.sheetMusicRevealed[id] || state.sheetMusicPieces[id]) continue;
+    const c = centerOf(id, { x: 640, y: 510 });
+    const d = Math.hypot(c.x - state.playerPosition.x, c.y - state.playerPosition.y);
+    if (d < bestDist) { bestDist = d; best = id; }
+  }
+  return best;
 };
 
 const FRIDGE_PROMPT: Prompt = {
@@ -445,9 +489,13 @@ const initialSession = () => ({
   emotionalResolutionMinutes: 0,
   albumProgress: 0,
   albumCompleted: false,
+  sheetFirstInteracted: {} as Record<string, boolean>,
+  sheetMusicRevealed: {} as Record<string, boolean>,
   sheetMusicPieces: {} as Record<string, boolean>,
   sheetMusicComplete: false,
   sheetPieceCue: { id: '', n: 0 } as SfxCue,
+  sheetRevealCue: { id: '', n: 0 } as SfxCue,
+  collectableInRangeId: null as string | null,
   sheetMusicOpen: false,
   confidence: 38,
   environment: 52,
@@ -646,6 +694,8 @@ export const useGameStore = create<GameState>((set) => ({
       // Collected fragments + completion persist (they're the whole point); only the transient pickup cue
       // and the open assembly panel are reset so a load never re-fires a toast or reopens the view.
       sheetPieceCue: { id: '', n: 0 },
+      sheetRevealCue: { id: '', n: 0 },
+      collectableInRangeId: null,
       sheetMusicOpen: false,
     } as Partial<GameState>;
     // Migration/recovery for saves captured before furniture and seat changes. Invalid seats, furniture-
@@ -945,8 +995,18 @@ export const useGameStore = create<GameState>((set) => ({
   // whatever the interaction returned, no matter which branch produced it.
   interact: (interactionId) => set((state) => {
     const result = computeInteraction(state, interactionId);
-    return result === state ? state : { ...result, ...awardSheetPiece(state, interactionId) };
+    return result === state ? state : { ...result, ...revealSheetPiece(state, interactionId) };
   }),
+  // Collect a specific floating fragment (clicked in the world). No-op unless it's actually out and uncollected.
+  collectPiece: (id) => set((state) => collectPiecePatch(state, id) ?? state),
+  // Collect the nearest floating fragment within reach (Enter / keyboard). No-op if none is close.
+  collectNearestPiece: () => set((state) => {
+    const id = nearestCollectablePiece(state);
+    return id ? (collectPiecePatch(state, id) ?? state) : state;
+  }),
+  // The renderer reports the nearest reachable fragment each frame; store it only when it changes so the
+  // "[Enter] Collect" prompt and the Enter handler stay in sync without a per-frame React churn.
+  setCollectableInRange: (id) => set((state) => (state.collectableInRangeId === id ? state : { collectableInRangeId: id })),
   openSheetMusic: () => set({ sheetMusicOpen: true }),
   closeSheetMusic: () => set({ sheetMusicOpen: false }),
   dismissPrompt: () => set({ prompt: null }),
