@@ -629,6 +629,7 @@ const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tun
 // heights, so each gets its own root Y to land the butt on the chair seat (~0.84 world) with feet ~on the
 // floor. Tuned by eye against the current chair + character scale.
 const SEAT_ROOT_Y = 0.24; // GLB sit clip — raised to meet the enlarged (CHAIR_SCALE) seat
+const SEAT_FACE = Math.PI; // seated yaw so the body faces the desk (tuned against the sit clip's baked turn)
 const SEAT_ROOT_Z = -0.1; // settle back into the chair
 const LIE_ROOT_Y = 0.72; // scaled root rests just above the duvet so the body no longer intersects the bed
 const LIE_ROOT_Z = 0.2; // slide toward the pillow / headboard end
@@ -793,7 +794,9 @@ function PlayerModel() {
     // sit/lie (GLB) bake a step-in walk into the root — anchor them in place so the body stays on the chair/bed.
     anchorHipsInPlace(pickClip(sit, 'sit')), anchorHipsInPlace(pickClip(lie, 'lie')),
     fbxPick(scrollFbx, 'scroll'), // doomscroll lying pose (quaternion-only)
-    fbxPick(maketuneFbx, 'maketune'), // seated collaboration motion
+    // Seated collaboration motion. Keep the (cm→m scaled) Hips-Y and anchor X/Z so the pelvis actually
+    // drops onto the chair like `sit` does — quaternion-only left the butt floating at standing height.
+    anchorHipsInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01)),
     fbxPick(ukuleleFbx, 'ukulele'), // standing strum performance (quaternion-only, upright)
   ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scrollFbx, maketuneFbx, ukuleleFbx]);
   const group = useRef<THREE.Group>(null);
@@ -853,7 +856,7 @@ function PlayerModel() {
       g.rotation.set(0, c.facing, 0);
     } else if (seated) {
       g.position.set(0, SEAT_ROOT_Y, SEAT_ROOT_Z);
-      c.facing += (Math.PI - c.facing) * ease; // face the desk (−z)
+      c.facing += (SEAT_FACE - c.facing) * ease; // face the desk
       g.rotation.set(0, c.facing, 0);
     } else {
       g.position.set(0, 0, 0);
@@ -1030,7 +1033,7 @@ function Npc1Model() {
     bones.current = grabPoseBones(root);
     return root;
   }, [walkGlb.scene, silhouette]);
-  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true), fbxPick(maketuneFbx, 'maketune')].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx]);
+  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true), anchorHipsInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01))].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx]);
   const group = useRef<THREE.Group>(null);
   const drinkGlass = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
@@ -1228,6 +1231,9 @@ const NPC2_WALK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_
 const NPC2_CLAP = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sitting_Clap_withSkin.fbx';
 const NPC2_DRINK = '/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Sit_and_Drink_withSkin.fbx';
 const NPC2_SEAT_Y = 0.12; // lift the seated FBX onto the sofa cushion
+// The clap/drink FBX clips are authored on Tom's own rig with a baked body yaw, so the seated group needs
+// this extra turn (on top of the room-facing π) to actually face the room instead of sitting sideways.
+const NPC2_SEAT_FACE = Math.PI;
 const NPC2_TARGET_HEIGHT = 3.0; // world units — Tom reads a touch taller than Jonny's ~2.89
 const NPC2_SILHOUETTE = '#0d0e13'; // near-black, its own value distinct from Jonny and Path
 
@@ -1246,7 +1252,7 @@ function Npc2Model() {
     return { scene: root, modelScale: heightScale(root, NPC2_TARGET_HEIGHT) };
   }, [meshFbx, silhouette]);
   // idle native (root kept); walk lifted from a different-axis export (root dropped, upright); the two
-  // seated poses (its own rig) are quaternion-only and placed on the bean bag via NPC2_SEAT_Y.
+  // seated poses (Tom's own rig) are quaternion-only and placed on the sofa via NPC2_SEAT_Y.
   const clips = useMemo(() => [fbxPick(meshFbx, 'idle'), fbxPick(walkFbx, 'walk', false, true), fbxPick(clapFbx, 'clap'), fbxPick(drinkFbx, 'drink')].filter(Boolean) as THREE.AnimationClip[], [meshFbx, walkFbx, clapFbx, drinkFbx]);
   const inner = useRef<THREE.Group>(null);
   const group = useRef<THREE.Group>(null);
@@ -1262,7 +1268,7 @@ function Npc2Model() {
     const sitting = s.npc2Sitting;
     const moving = !sitting && Math.hypot(dx, dz) > 0.0015;
     const ease = Math.min(1, dt * 10);
-    if (sitting) { c.facing += (Math.PI - c.facing) * ease; inner.current.position.set(0, NPC2_SEAT_Y, 0); } // seated, faces the room
+    if (sitting) { c.facing += (NPC2_SEAT_FACE - c.facing) * ease; inner.current.position.set(0, NPC2_SEAT_Y, 0); } // seated, faces the room (−z), same convention as the other characters
     else {
       inner.current.position.set(0, 0, 0);
       if (moving) { const target = Math.atan2(dx, dz) + MODEL_FORWARD; const diff = Math.atan2(Math.sin(target - c.facing), Math.cos(target - c.facing)); c.facing += diff * Math.min(1, dt * 6); }

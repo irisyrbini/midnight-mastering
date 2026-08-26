@@ -938,9 +938,16 @@ export const useGameStore = create<GameState>((set) => ({
         return { visitorTarget: pickVisitorSpot(state.visitorPos), visitorPauseUntil: state.elapsedMs + 5000 + Math.random() * 7000, needs: applyNeedChange(state.needs, { social: 0.3 * (deltaMs / 1000) }) };
       }
     }
+    // Treat the other guests as soft obstacles so Path and Tom don't pin each other in a doorway.
+    const others = [state.npc2Active ? state.npc2Pos : null, state.npc3Active ? state.npc3Pos : null].filter(Boolean) as Point[];
     if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true }; // opens the door and steps out
-    if (goingHome && dist <= 120) { const vp = npcSafeStep(state.visitorPos, target, step, 22, [], -1); return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
-    const visitorPos = npcSafeStep(state.visitorPos, target, step, 22, [], -1);
+    if (goingHome && dist <= 120) { const vp = npcSafeStep(state.visitorPos, target, step, 22, others, -1); return { visitorPos: vp, entranceOpen: true }; } // open the door as they approach it
+    const visitorPos = npcSafeStep(state.visitorPos, target, step, 22, others, -1);
+    // Reroute fast: if a step made no headway while still far from the target, that route is blocked —
+    // pick a fresh wander spot this tick instead of grinding against the obstacle forever.
+    if (!goingHome && !state.friendActivity && dist > 44 && Math.hypot(visitorPos.x - state.visitorPos.x, visitorPos.y - state.visitorPos.y) < step * 0.25) {
+      return { visitorPos, visitorTarget: pickVisitorSpot(state.visitorPos), visitorPauseUntil: state.elapsedMs + 400 };
+    }
     return { visitorPos };
   }),
   /**
@@ -957,7 +964,8 @@ export const useGameStore = create<GameState>((set) => ({
       return { npc2Pos: { x: 430, y: 650 }, npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 900, npc2Target: { x: 520, y: 650 } };
     }
     const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
-    const moveTo = (p: Point) => npcSafeStep(state.npc2Pos, p, step, 22, [], 1);
+    const others = [state.visitorActive ? state.visitorPos : null, state.npc3Active ? state.npc3Pos : null].filter(Boolean) as Point[];
+    const moveTo = (p: Point) => npcSafeStep(state.npc2Pos, p, step, 22, others, 1);
     const moveToSeat = (p: Point) => {
       const dx = p.x - state.npc2Pos.x, dy = p.y - state.npc2Pos.y, distance = Math.hypot(dx, dy) || 1;
       return distance < 140 ? clampToRoom({ x: state.npc2Pos.x + (dx / distance) * Math.min(step, distance), y: state.npc2Pos.y + (dy / distance) * Math.min(step, distance) }) : moveTo(p);
@@ -986,7 +994,12 @@ export const useGameStore = create<GameState>((set) => ({
       if (freeSeat && Math.random() < 0.4) return { npc2Seat: freeSeat };
       return { npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
     }
-    return { npc2Pos: moveTo(state.npc2Target) };
+    const npc2Pos = moveTo(state.npc2Target);
+    // Blocked route → reroute immediately to a fresh open point rather than grinding in place.
+    if (dist > 30 && Math.hypot(npc2Pos.x - state.npc2Pos.x, npc2Pos.y - state.npc2Pos.y) < step * 0.25) {
+      return { npc2Pos, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }), npc2PauseUntil: state.elapsedMs + 400 };
+    }
+    return { npc2Pos };
   }),
   stepNpc3: (deltaMs) => set((state) => {
     if (!state.npc3Active || state.phase !== 'playing') return state;
@@ -995,7 +1008,8 @@ export const useGameStore = create<GameState>((set) => ({
       return { npc3Pos: { x: 900, y: 620 }, npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 900, npc3Target: { x: 980, y: 620 } };
     }
     const step = 175 * (deltaMs / 1000);
-    const moveTo = (p: Point) => npcSafeStep(state.npc3Pos, p, step, 22, [], -1);
+    const others = [state.visitorActive ? state.visitorPos : null, state.npc2Active ? state.npc2Pos : null].filter(Boolean) as Point[];
+    const moveTo = (p: Point) => npcSafeStep(state.npc3Pos, p, step, 22, others, -1);
     const moveToSeat = (p: Point) => {
       const dx = p.x - state.npc3Pos.x, dy = p.y - state.npc3Pos.y, distance = Math.hypot(dx, dy) || 1;
       return distance < 140 ? clampToRoom({ x: state.npc3Pos.x + (dx / distance) * Math.min(step, distance), y: state.npc3Pos.y + (dy / distance) * Math.min(step, distance) }) : moveTo(p);
@@ -1023,6 +1037,10 @@ export const useGameStore = create<GameState>((set) => ({
       if (seat && Math.random() < 0.6) return { npc3Seat: seat };
       return { npc3PauseUntil: state.elapsedMs + 1200 + Math.random() * 3000, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
     }
-    return { npc3Pos: moveTo(state.npc3Target) };
+    const npc3Pos = moveTo(state.npc3Target);
+    if (dist > 30 && Math.hypot(npc3Pos.x - state.npc3Pos.x, npc3Pos.y - state.npc3Pos.y) < step * 0.25) {
+      return { npc3Pos, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }), npc3PauseUntil: state.elapsedMs + 400 };
+    }
+    return { npc3Pos };
   }),
 }));
