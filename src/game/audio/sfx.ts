@@ -247,6 +247,35 @@ export function playConsoleBlip() {
   shapes[Math.floor(Math.random() * shapes.length)]();
 }
 
+/** A single torn sheet-music fragment being picked up: a soft paper rustle (short band-passed noise
+ *  crumples) topped with a faint bell so the collection reads as a small, quiet discovery — not a chime. */
+export function playPaperPickup() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  for (let i = 0; i < 3; i += 1) {
+    const dur = 0.05 + Math.random() * 0.04;
+    const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let j = 0; j < data.length; j += 1) data[j] = (Math.random() * 2 - 1) * (1 - j / data.length);
+    const src = ac.createBufferSource(); src.buffer = buffer;
+    const filter = ac.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 2200 + Math.random() * 1400; filter.Q.value = 0.9;
+    const gain = ac.createGain(); gain.gain.value = 0.06;
+    src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+    src.start(t + i * 0.06);
+  }
+  pluck(ac, 1174.66, t + 0.04, 0.5, 'sine', 0.4, 5000); // a soft, distant note settling in
+}
+
+/** The whole torn score reassembling — a quiet, warm resolving chord (major, low velocity). Deliberately
+ *  understated: a held breath, not a fanfare. */
+export function playSheetComplete() {
+  const ac = audio();
+  if (!ac) return;
+  const t = ac.currentTime;
+  [261.63, 329.63, 392.0, 587.33].forEach((f, i) => pluck(ac, f, t + i * 0.12, 2.2, 'sine', 0.6, 4200));
+}
+
 /** Two-tone elevator arrival chime. */
 export function playElevatorDing() {
   const ac = audio();

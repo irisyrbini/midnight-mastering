@@ -2,11 +2,14 @@
 
 import { useEffect } from 'react';
 import { useGameStore } from '@/store/game-store';
-import { playConsoleBlip, playInteractionSfx, startRain, stopRain } from '@/game/audio/sfx';
+import { playConsoleBlip, playInteractionSfx, playPaperPickup, playSheetComplete, startRain, stopRain } from '@/game/audio/sfx';
+import { SHEET_PIECE_TOTAL, collectedCount } from '@/data/sheet-music';
 
 /** Plays a synthesized sound cue whenever an interaction fires (guitars strum, notebook scribbles). */
 export function SfxPlayer() {
   const cue = useGameStore((state) => state.sfxCue);
+  const pieceCue = useGameStore((state) => state.sheetPieceCue);
+  const pieces = useGameStore((state) => state.sheetMusicPieces);
   const weather = useGameStore((state) => state.weather);
   const paused = useGameStore((state) => state.phase !== 'playing');
   const rainMuted = useGameStore((state) => state.rainMuted);
@@ -14,6 +17,13 @@ export function SfxPlayer() {
   useEffect(() => {
     if (cue.n > 0) playInteractionSfx(cue.id);
   }, [cue]);
+  // A torn sheet-music fragment was just collected: a paper rustle, or the warm resolving chord if that
+  // pickup was the one that completed the whole score.
+  useEffect(() => {
+    if (pieceCue.n <= 0) return;
+    if (collectedCount(pieces) >= SHEET_PIECE_TOTAL) playSheetComplete();
+    else playPaperPickup();
+  }, [pieceCue]); // eslint-disable-line react-hooks/exhaustive-deps -- fire on the cue only, read pieces at that moment
   // Gentle rain ambience for as long as the weather holds; hail runs the same loop at a much lower level.
   // Muted by the HUD rain toggle.
   useEffect(() => {

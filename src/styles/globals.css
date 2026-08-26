@@ -6,3 +6,6 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: #101018; color: #ece7dc; font-family: Arial, sans-serif; }
 canvas { display: block; }
+
+/* Sheet-music collection toast entrance. */
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

@@ -13,6 +13,9 @@ import { SfxPlayer } from './SfxPlayer';
 import { FriendMenu } from './FriendMenu';
 import { ElevatorFloors } from './ElevatorFloors';
 import { SaveMenu } from './SaveMenu';
+import { SheetMusicToast } from './SheetMusicToast';
+import { SheetMusicView } from './SheetMusicView';
+import { SHEET_PIECE_TOTAL, collectedCount } from '@/data/sheet-music';
 
 const NEEDS: { key: NeedKey; label: string; color: string }[] = [
   { key: 'hunger', label: 'Hunger', color: '#d6a447' },
@@ -45,6 +48,10 @@ export function GameHud() {
   const emotionalGraph = useGameStore((state) => state.emotionalGraph);
   const albumProgress = useGameStore((state) => state.albumProgress);
   const albumCompleted = useGameStore((state) => state.albumCompleted);
+  const sheetPieces = useGameStore((state) => state.sheetMusicPieces);
+  const sheetComplete = useGameStore((state) => state.sheetMusicComplete);
+  const openSheetMusic = useGameStore((state) => state.openSheetMusic);
+  const sheetCount = collectedCount(sheetPieces);
   const weather = useGameStore((state) => state.weather);
   const rainMuted = useGameStore((state) => state.rainMuted);
   const toggleRainMute = useGameStore((state) => state.toggleRainMute);
@@ -77,12 +84,18 @@ export function GameHud() {
       <div className="mt-1 flex items-baseline justify-between"><p className="text-sm font-semibold capitalize text-paper">{crystal} state</p><p className="font-mono text-sm text-paper/75">{emotion}%</p></div>
       <div className="mt-1.5 h-2 overflow-hidden rounded-full border border-paper/35 bg-black/25"><div className="h-full transition-[width] duration-500" style={{ width: `${emotion}%`, backgroundColor: crystalHex }} /></div>
       <div className="mt-3 h-2 overflow-hidden rounded-full border border-paper/35 bg-black/25"><div className="h-full bg-ember transition-[width] duration-300" style={{ width: `${albumProgress}%` }} /></div>
-      <p className="mt-1 text-xs text-paper/65">Album {Math.round(albumProgress)}%{albumCompleted ? ' · Complete' : ' · Requires green crystal'}</p>
+      <p className="mt-1 text-xs text-paper/65">Album {Math.round(albumProgress)}%{albumCompleted ? ' · Complete' : ' · Needs green + full score'}</p>
+      <button onClick={openSheetMusic} className="pointer-events-auto mt-2 flex w-full items-center justify-between gap-2 rounded-md border border-[#c9b892]/35 bg-black/20 px-2 py-1.5 text-left hover:bg-paper/10">
+        <span className="flex items-center gap-1.5 text-xs text-paper/80"><span aria-hidden className="text-[#d8c79c]">♪</span> Sheet Music</span>
+        <span className="font-mono text-xs" style={{ color: sheetComplete ? '#d8c79c' : 'rgba(238,236,228,0.7)' }}>{sheetCount} / {SHEET_PIECE_TOTAL}{sheetComplete ? ' ✓' : ''}</span>
+      </button>
     </aside>
     {lastInteraction && <aside className="pointer-events-none absolute bottom-5 left-1/2 w-[min(440px,calc(100%-2.5rem))] -translate-x-1/2 rounded-xl border border-paper/45 bg-night/90 px-5 py-4 text-center shadow-2xl">
       <p className="text-sm text-paper"><span className="font-semibold">{lastInteraction.label}</span> · {lastInteraction.description}</p>
     </aside>}
+    <SheetMusicToast />
     </>}
+    <SheetMusicView />
     <DawPanel />
     <InteractionVideo />
     <PromptOverlay />

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { interactionById } from '@/data/interactions';
+import { SHEET_PIECE_IDS, SHEET_PIECE_TOTAL, collectedCount } from '@/data/sheet-music';
 import { STUDIO_OBJECTS, CHAIR_SIT_ANCHOR, BED_LIE_ANCHOR, SYNTH_PERFORMANCE_ANCHOR, NPC1_IDLE_SPOTS, UKULELE_ANCHOR } from '@/data/studio-layout';
 import { crystalState, emotionalNeedDrift, INITIAL_EMOTIONAL_GRAPH, resolveEmotionGraph, weightedEmotionalScore } from '@/game/simulation/emotionalGraph';
 import type { CrystalState, EmotionalEffect, Ending, EmotionalGraphState, FriendActivity, GamePhase, GameSnapshot, Interaction, NeedChange, ProducerNeeds, WeatherKind } from '@/types/game';
@@ -18,6 +19,12 @@ type GameState = GameSnapshot & {
   emotionalResolutionMinutes: number;
   albumProgress: number;
   albumCompleted: boolean;
+  // Torn sheet-music puzzle: which objects have yielded their fragment (persistent), whether the whole
+  // page has been reassembled, a one-shot cue for the pickup toast/sound, and the assembly-view toggle.
+  sheetMusicPieces: Record<string, boolean>;
+  sheetMusicComplete: boolean;
+  sheetPieceCue: SfxCue;
+  sheetMusicOpen: boolean;
   confidence: number;
   environment: number;
   sleep: number;
@@ -128,6 +135,8 @@ type GameState = GameSnapshot & {
   restart: () => void;
   tick: (deltaMs: number) => void;
   interact: (interactionId: string) => void;
+  openSheetMusic: () => void;
+  closeSheetMusic: () => void;
 };
 
 export type PromptChoice = { label: string; kind: string };
@@ -323,6 +332,17 @@ const INSTRUMENT_BONUS: Record<string, number> = { acousticGuitar: 2.2, electric
 const REQUIRED_INSTRUMENT_COUNT = INSTRUMENT_IDS.size;
 const allInstrumentsUsed = (used: Record<string, boolean>) => [...INSTRUMENT_IDS].every((id) => used[id]);
 
+// Torn sheet-music fragments. The FIRST successful interaction with an eligible object tears its fragment
+// loose exactly once; the reward is persistent (saved in sheetMusicPieces), so reloading can't duplicate
+// it. Returns the state patch to merge, or {} when nothing new is collected.
+const SHEET_PIECE_SET = new Set(SHEET_PIECE_IDS);
+const awardSheetPiece = (state: GameState, interactionId: string): Partial<GameState> => {
+  if (!SHEET_PIECE_SET.has(interactionId) || state.sheetMusicPieces[interactionId]) return {};
+  const sheetMusicPieces = { ...state.sheetMusicPieces, [interactionId]: true };
+  const sheetMusicComplete = collectedCount(sheetMusicPieces) >= SHEET_PIECE_TOTAL;
+  return { sheetMusicPieces, sheetMusicComplete, sheetPieceCue: { id: interactionId, n: state.sheetPieceCue.n + 1 } };
+};
+
 const FRIDGE_PROMPT: Prompt = {
   title: 'Cold beers on the shelf.',
   choices: [
@@ -425,6 +445,10 @@ const initialSession = () => ({
   emotionalResolutionMinutes: 0,
   albumProgress: 0,
   albumCompleted: false,
+  sheetMusicPieces: {} as Record<string, boolean>,
+  sheetMusicComplete: false,
+  sheetPieceCue: { id: '', n: 0 } as SfxCue,
+  sheetMusicOpen: false,
   confidence: 38,
   environment: 52,
   sleep: 46,
@@ -534,6 +558,74 @@ function applyNeedChange(needs: ProducerNeeds, changes: NeedChange): ProducerNee
   return Object.fromEntries(Object.entries(needs).map(([key, value]) => [key, clamp(value + (changes[key as keyof ProducerNeeds] ?? 0))])) as ProducerNeeds;
 }
 
+/**
+ * Pure resolution of a single interaction: given the current state and an interaction id, return the state
+ * patch it produces (or the same `state` reference if nothing happens — bad id or not in play). Extracted
+ * from the store so the sheet-music award can be merged onto whatever branch fired, without threading the
+ * collection through a dozen return sites. Reads state, never `set` — the store's `interact` wraps it.
+ */
+const computeInteraction = (state: GameState, interactionId: string): GameState | Partial<GameState> => {
+  const interaction = interactionById[interactionId];
+  if (!interaction || state.phase !== 'playing') return state;
+  const emotionalGraph = resolveEmotionGraph(state.emotionalGraph, interaction.emotionalEffects);
+  const emotionalScore = weightedEmotionalScore(state.needs, { inspiration: state.inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
+  const crystal = crystalState(emotionalGraph, emotionalScore);
+  const inspirationMinutes = interaction.inspirationMinutes ? Math.max(state.inspirationMinutes, interaction.inspirationMinutes) : state.inspirationMinutes;
+  const sfxCue = { id: interactionId, n: state.sfxCue.n + 1 };
+  const instrumentsUsed = INSTRUMENT_IDS.has(interactionId) ? { ...state.instrumentsUsed, [interactionId]: true } : state.instrumentsUsed;
+  // The chair toggles sitting; the bed toggles lying. Snap onto the furniture, use again to get up. No playback modal.
+  const bonus = INSTRUMENT_BONUS[interactionId] ?? 0;
+  if (interaction.action === 'sit') {
+    const seated = !state.seated;
+    // Snap to whichever seat was used (chair / bean bag / sofa), not always the studio chair.
+    const seat = centerOf(interactionId, SIT_POSITION);
+    return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? seat : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue, albumProgress: clamp(state.albumProgress + bonus) };
+  }
+  if (interaction.action === 'lie') {
+    const lyingDown = !state.lyingDown;
+    return { lyingDown, seated: false, scrolling: false, playerPosition: lyingDown ? LIE_POSITION : state.playerPosition, moveTarget: null,
+      needs: lyingDown ? applyNeedChange(state.needs, interaction.changes) : state.needs,
+      stress: lyingDown ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+  }
+  // The fridge opens with a beer/snack choice; the bed phone offers call/scroll. Both raise a prompt instead of a modal.
+  if (interaction.action === 'fridge') {
+    const fridgeOpen = !state.fridgeOpen;
+    return { fridgeOpen, seated: false, lyingDown: false, prompt: fridgeOpen ? FRIDGE_PROMPT : null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+  }
+  if (interaction.action === 'phone-bed') {
+    return { prompt: PHONE_PROMPT, seated: false, lyingDown: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+  }
+  if (interaction.action === 'ukulele') {
+    // Pick up the ukulele where the producer is standing and play a single one-shot performance; the
+    // renderer attaches the prop to the hand + strums, and `tick` returns it to the bedside on the timer.
+    return { playingUkulele: true, ukuleleUntil: state.elapsedMs + 7000, seated: false, lyingDown: false, scrolling: false, workingOnMusic: false, moveTarget: null,
+      needs: applyNeedChange(state.needs, interaction.changes), stress: clamp(state.stress + (interaction.stressDelta ?? 0)), lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+  }
+  if (interaction.action === 'window') {
+    const windowOpen = !state.windowOpen;
+    return { windowOpen, seated: false, lyingDown: false, scrolling: false,
+      needs: windowOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
+      stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+  }
+  if (interaction.action === 'entrance') {
+    return { entranceOpen: true, prompt: LEAVE_STUDIO_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
+  }
+  // Any other interaction stands the producer up. The entrance swings its door open.
+  const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
+  const stress = clamp(state.stress + (interaction.stressDelta ?? 0));
+  const guitarNotesMinutes = interactionId === 'acousticGuitar' || interactionId === 'electricGuitar' ? 20 : state.guitarNotesMinutes;
+  const seatedForAction = interactionId === 'vodka' || interactionId === 'switch';
+  const playerPosition = seatedForAction ? SIT_POSITION : state.playerPosition;
+  if (interaction.action === 'open-anime') return { needs: applyNeedChange(state.needs, interaction.changes), dawOpen: false, workingOnMusic: false, activeVideoId: 'anime', lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes: Math.max(inspirationMinutes, 20), guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+  if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+  const updatedNeeds = applyNeedChange(state.needs, interaction.changes);
+  const updatedScore = weightedEmotionalScore(updatedNeeds, { inspiration: inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
+  // Lighting a cigarette must not raise the inspect card: it covers the room, and the whole point is
+  // to keep walking while the smoking animation plays out.
+  const isSmoke = interaction.id === 'cigarettes';
+  return { needs: updatedNeeds, activeVideoId: isSmoke ? undefined : interaction.id, guitarNotesMinutes, smokingMinutes: isSmoke ? 10 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+};
+
 export const useGameStore = create<GameState>((set) => ({
   phase: 'booting',
   ...initialSession(),
@@ -551,6 +643,10 @@ export const useGameStore = create<GameState>((set) => ({
       phoneRinging: false,
       visitorDetour: null,
       visitorStuckMs: 0,
+      // Collected fragments + completion persist (they're the whole point); only the transient pickup cue
+      // and the open assembly panel are reset so a load never re-fires a toast or reopens the view.
+      sheetPieceCue: { id: '', n: 0 },
+      sheetMusicOpen: false,
     } as Partial<GameState>;
     // Migration/recovery for saves captured before furniture and seat changes. Invalid seats, furniture-
     // embedded guests, and overlapping NPCs are moved to separate known-open floor positions on load.
@@ -822,7 +918,11 @@ export const useGameStore = create<GameState>((set) => ({
     const crystalMultiplier = crystal === 'green' ? 1.5 : crystal === 'red' ? 0.7 : 1;
     const albumProgress = clamp(state.albumProgress + (state.collaborationMinutes > 0 ? 0.24 : 0.12) * gameMinutes * crystalMultiplier);
     // The album can only be finished once every instrument (incl. the lyric notebook) has been used.
-    const albumCompleted = state.albumCompleted || (albumProgress >= 100 && crystal === 'green' && allInstrumentsUsed(state.instrumentsUsed));
+    // Final-song lock: 100% album is NOT enough on its own. The chapter's finished song only unlocks when
+    // the album is done AND the crystal is green AND the torn score has been fully reassembled. Collecting
+    // every fragment necessarily means every instrument was played, so sheetMusicComplete subsumes the old
+    // all-instruments gate while adding the scattered-props recovery on top.
+    const albumCompleted = state.albumCompleted || (albumProgress >= 100 && crystal === 'green' && state.sheetMusicComplete);
     return {
       ...base,
       needs,
@@ -840,67 +940,15 @@ export const useGameStore = create<GameState>((set) => ({
       ...sessionFrame(needs, albumCompleted),
     };
   }),
+  // Run the interaction, then — if it actually did something — tear the object's sheet-music fragment
+  // loose (once, on the first successful interaction). The award is merged on top so it rides along with
+  // whatever the interaction returned, no matter which branch produced it.
   interact: (interactionId) => set((state) => {
-    const interaction = interactionById[interactionId];
-    if (!interaction || state.phase !== 'playing') return state;
-    const emotionalGraph = resolveEmotionGraph(state.emotionalGraph, interaction.emotionalEffects);
-    const emotionalScore = weightedEmotionalScore(state.needs, { inspiration: state.inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
-    const crystal = crystalState(emotionalGraph, emotionalScore);
-    const inspirationMinutes = interaction.inspirationMinutes ? Math.max(state.inspirationMinutes, interaction.inspirationMinutes) : state.inspirationMinutes;
-    const sfxCue = { id: interactionId, n: state.sfxCue.n + 1 };
-    const instrumentsUsed = INSTRUMENT_IDS.has(interactionId) ? { ...state.instrumentsUsed, [interactionId]: true } : state.instrumentsUsed;
-    // The chair toggles sitting; the bed toggles lying. Snap onto the furniture, use again to get up. No playback modal.
-    const bonus = INSTRUMENT_BONUS[interactionId] ?? 0;
-    if (interaction.action === 'sit') {
-      const seated = !state.seated;
-      // Snap to whichever seat was used (chair / bean bag / sofa), not always the studio chair.
-      const seat = centerOf(interactionId, SIT_POSITION);
-      return { seated, lyingDown: false, scrolling: false, playerPosition: seated ? seat : state.playerPosition, moveTarget: null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue, albumProgress: clamp(state.albumProgress + bonus) };
-    }
-    if (interaction.action === 'lie') {
-      const lyingDown = !state.lyingDown;
-      return { lyingDown, seated: false, scrolling: false, playerPosition: lyingDown ? LIE_POSITION : state.playerPosition, moveTarget: null,
-        needs: lyingDown ? applyNeedChange(state.needs, interaction.changes) : state.needs,
-        stress: lyingDown ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
-    }
-    // The fridge opens with a beer/snack choice; the bed phone offers call/scroll. Both raise a prompt instead of a modal.
-    if (interaction.action === 'fridge') {
-      const fridgeOpen = !state.fridgeOpen;
-      return { fridgeOpen, seated: false, lyingDown: false, prompt: fridgeOpen ? FRIDGE_PROMPT : null, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
-    }
-    if (interaction.action === 'phone-bed') {
-      return { prompt: PHONE_PROMPT, seated: false, lyingDown: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
-    }
-    if (interaction.action === 'ukulele') {
-      // Pick up the ukulele where the producer is standing and play a single one-shot performance; the
-      // renderer attaches the prop to the hand + strums, and `tick` returns it to the bedside on the timer.
-      return { playingUkulele: true, ukuleleUntil: state.elapsedMs + 7000, seated: false, lyingDown: false, scrolling: false, workingOnMusic: false, moveTarget: null,
-        needs: applyNeedChange(state.needs, interaction.changes), stress: clamp(state.stress + (interaction.stressDelta ?? 0)), lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
-    }
-    if (interaction.action === 'window') {
-      const windowOpen = !state.windowOpen;
-      return { windowOpen, seated: false, lyingDown: false, scrolling: false,
-        needs: windowOpen ? applyNeedChange(state.needs, interaction.changes) : state.needs,
-        stress: windowOpen ? clamp(state.stress + (interaction.stressDelta ?? 0)) : state.stress, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
-    }
-    if (interaction.action === 'entrance') {
-      return { entranceOpen: true, prompt: LEAVE_STUDIO_PROMPT, seated: false, lyingDown: false, scrolling: false, lastInteraction: interaction, emotionalGraph, crystal, sfxCue };
-    }
-    // Any other interaction stands the producer up. The entrance swings its door open.
-    const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
-    const stress = clamp(state.stress + (interaction.stressDelta ?? 0));
-    const guitarNotesMinutes = interactionId === 'acousticGuitar' || interactionId === 'electricGuitar' ? 20 : state.guitarNotesMinutes;
-    const seatedForAction = interactionId === 'vodka' || interactionId === 'switch';
-    const playerPosition = seatedForAction ? SIT_POSITION : state.playerPosition;
-    if (interaction.action === 'open-anime') return { needs: applyNeedChange(state.needs, interaction.changes), dawOpen: false, workingOnMusic: false, activeVideoId: 'anime', lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes: Math.max(inspirationMinutes, 20), guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
-    if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
-    const updatedNeeds = applyNeedChange(state.needs, interaction.changes);
-    const updatedScore = weightedEmotionalScore(updatedNeeds, { inspiration: inspirationMinutes, confidence: state.confidence, environment: state.environment, sleep: state.sleep }, emotionalGraph);
-    // Lighting a cigarette must not raise the inspect card: it covers the room, and the whole point is
-    // to keep walking while the smoking animation plays out.
-    const isSmoke = interaction.id === 'cigarettes';
-    return { needs: updatedNeeds, activeVideoId: isSmoke ? undefined : interaction.id, guitarNotesMinutes, smokingMinutes: isSmoke ? 10 : state.smokingMinutes, lastInteraction: interaction, emotionalGraph, crystal: crystalState(emotionalGraph, updatedScore), inspirationMinutes, playerPosition, seated: seatedForAction, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
+    const result = computeInteraction(state, interactionId);
+    return result === state ? state : { ...result, ...awardSheetPiece(state, interactionId) };
   }),
+  openSheetMusic: () => set({ sheetMusicOpen: true }),
+  closeSheetMusic: () => set({ sheetMusicOpen: false }),
   dismissPrompt: () => set({ prompt: null }),
   choose: (kind) => set((state) => {
     if (kind === 'drink-beer') {
