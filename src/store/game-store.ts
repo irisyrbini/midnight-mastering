@@ -666,7 +666,7 @@ const computeInteraction = (state: GameState, interactionId: string): GameState 
   const entranceOpen = interactionId === 'entrance' ? true : state.entranceOpen;
   const stress = clamp(state.stress + (interaction.stressDelta ?? 0));
   const guitarNotesMinutes = interactionId === 'acousticGuitar' || interactionId === 'electricGuitar' ? 20 : state.guitarNotesMinutes;
-  const seatedForAction = interactionId === 'vodka' || interactionId === 'switch';
+  const seatedForAction = interactionId === 'vodka' || interactionId === 'switch' || interactionId === 'mechanicalKeyboard';
   const playerPosition = seatedForAction ? SIT_POSITION : state.playerPosition;
   if (interaction.action === 'open-anime') return { needs: applyNeedChange(state.needs, interaction.changes), dawOpen: false, workingOnMusic: false, activeVideoId: 'anime', lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes: Math.max(inspirationMinutes, 20), guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };
   if (interaction.action === 'open-daw') return { dawOpen: true, workingOnMusic: false, activeVideoId: interaction.id, lastInteraction: interaction, emotionalGraph, crystal, inspirationMinutes, guitarNotesMinutes, seated: false, lyingDown: false, scrolling: false, entranceOpen, stress, sfxCue, instrumentsUsed, albumProgress: clamp(state.albumProgress + bonus) };

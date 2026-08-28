@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { Suspense, useEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react';
-import { STUDIO_OBJECTS, SYNTH_CENTER, objectCenter, objectById, type StudioObject, type Point } from '@/data/studio-layout';
+import { STUDIO_OBJECTS, SYNTH_CENTER, SYNTH_PERFORMANCE_ANCHOR, objectCenter, objectById, type StudioObject, type Point } from '@/data/studio-layout';
 import { interactionById } from '@/data/interactions';
 import { ELEVATOR_DING_MS, ELEVATOR_DOOR_MS, ELEVATOR_RIDE_MS, nearestCollectablePiece, useGameStore } from '@/store/game-store';
 import { SHEET_PIECE_IDS, pieceIndex } from '@/data/sheet-music';
@@ -652,7 +652,10 @@ const faceYawTo = (from: Point, to: Point): number => {
 // Dev-only: draw seat-surface + anchor + face-direction markers to calibrate contact by eye. Keep false.
 const DEBUG_SEATS = false;
 const JONNY_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // GLB sit.glb (also make-tune/drink, same rig)
-const JONNY_LIE: PoseCalib = { rootY: 0.8, rootZ: 0.2, yawOffset: 0 };  // GLB lie.glb (also doom-scroll)
+const JONNY_LIE: PoseCalib = { rootY: 0.8, rootZ: 0.2, yawOffset: 0 };  // GLB lie.glb
+// scroll.fbx is a DIFFERENT rig/clip than lie.glb (its own bind height, quaternion-only), so it needs its
+// own root height to actually rest the back on the mattress instead of floating at the GLB lie height.
+const JONNY_SCROLL: PoseCalib = { rootY: 0.42, rootZ: 0.2, yawOffset: 0 };
 const PATH_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 };  // NPC1 shadow/sit.glb + maketune.fbx
 const TOM_SIT: PoseCalib = { rootY: 0.12, rootZ: 0, yawOffset: Math.PI };   // NPC2 clap/drink FBX (own rig)
 const TOM_SIT_PITCH = 0; // the clap/drink clips are already an upright standing pose - no pitch correction needed
@@ -853,6 +856,7 @@ function PlayerModel() {
     const want = moving ? (s.running ? 'run' : 'walk')
       : s.playingUkulele ? 'ukulele' // standing strum performance (ukulele.fbx)
       : s.friendActivity === 'tune' ? 'maketune'
+      : (seated && s.lastInteraction?.id === 'mechanicalKeyboard') ? 'maketune' // solo: hands up at the keyboard
       : (lying && s.scrolling) ? 'scroll' // doomscroll: real scroll motion, same lie orientation
       : lying ? 'lie'
       : seated ? 'sit'
@@ -874,8 +878,10 @@ function PlayerModel() {
     // Root transform per pose. The parent <Player> group already sits at the chair/bed (playerPosition
     // is SIT_POSITION / LIE_POSITION); the clip poses the body, we only place + orient the root.
     if (lying) {
-      g.position.set(0, JONNY_LIE.rootY, JONNY_LIE.rootZ);
-      const targetYaw = BED_LIE_YAW + JONNY_LIE.yawOffset; // head to the pillow end (bed-relative)
+      // doom-scroll uses a different rig/clip than the plain lie pose, so it gets its own calibrated height.
+      const lieCalib = s.scrolling ? JONNY_SCROLL : JONNY_LIE;
+      g.position.set(0, lieCalib.rootY, lieCalib.rootZ);
+      const targetYaw = BED_LIE_YAW + lieCalib.yawOffset; // head to the pillow end (bed-relative)
       c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
       g.rotation.set(0, c.facing, 0);
     } else if (seated) {
@@ -1065,8 +1071,14 @@ function Npc1Model() {
   const { actions } = useAnimations(clips, scene);
   const st = useRef({ x: 0, z: 0, ready: false, facing: 0, clip: '' });
   const sip = useRef({ timer: 3.5, progress: 0 });
-  // Path patches the modular synth (its SFX) while standing at it, not during a seated activity.
-  const atSynth = useGameStore((s) => s.visitorActive && !s.friendActivity && !s.friendMenuOpen);
+  // Path patches the modular synth (its SFX) only while actually standing AT it — not merely "visiting and
+  // not busy", which also covered every other idle spot he wanders to (the bug: the sound followed him
+  // around the room). Gate on real proximity to the synth performance anchor.
+  const atSynth = useGameStore((s) => {
+    if (!s.visitorActive || s.friendActivity || s.friendMenuOpen) return false;
+    const d = Math.hypot(s.visitorPos.x - SYNTH_PERFORMANCE_ANCHOR.x, s.visitorPos.y - SYNTH_PERFORMANCE_ANCHOR.y);
+    return d <= 70;
+  });
   useEffect(() => {
     if (!atSynth) return;
     const timer = window.setInterval(() => playModularPatch(), 5200 + Math.random() * 3600);
@@ -1093,16 +1105,19 @@ function Npc1Model() {
     // Lift the pelvis onto the friend-chair seat while seated (was sitting at floor height, root Y = 0).
     group.current.position.set(vx, s.friendActivity ? PATH_SIT.rootY : 0, vz);
     group.current.rotation.y = c.facing;
-    // Clip: a held seated pose during any friend activity (tune/vodka differentiated by the FX/prop
-    // overlays), walk while moving, else the idle base pose (standing at the synth).
-    const want = s.friendActivity === 'tune' ? 'maketune' : s.friendActivity ? 'sit' : moving ? 'walk' : 'idle';
+    // Clip: ANY friend activity (tune/vodka/video-game) shows the same active seated maketune loop — hands
+    // moving at the desk, facing it — rather than a frozen sit-hold frame; the FX/prop overlays (drink
+    // glass, game screen glow) differentiate what's actually happening. Walk while moving, else idle at the synth.
+    const want = s.friendActivity ? 'maketune' : moving ? 'walk' : 'idle';
     if (want !== c.clip) {
       if (c.clip) actions[c.clip]?.fadeOut(0.2);
       const a = actions[want];
       if (a) {
         a.reset();
-        if (want === 'sit') { a.play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } // hold the seated end frame
-        else { const once = want !== 'walk' && want !== 'idle'; a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); a.clampWhenFinished = once; a.fadeIn(0.2).play(); }
+        // walk/idle/maketune all loop continuously; only a held seated end-frame (unused here currently) would be one-shot.
+        const once = want !== 'walk' && want !== 'idle' && want !== 'maketune';
+        if (once) { a.play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } // hold the end frame
+        else { a.setLoop(THREE.LoopRepeat, Infinity); a.clampWhenFinished = false; a.fadeIn(0.2).play(); }
       }
       c.clip = want;
     }
