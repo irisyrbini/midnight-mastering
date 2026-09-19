@@ -13,6 +13,9 @@ type GameState = GameSnapshot & {
   dawOpen: boolean;
   workingOnMusic: boolean;
   musicQuality: number;
+  /** Was Path+Tom+Yebin all in the room together last tick — tracked to fire the "full house" boost once
+   *  on the rising edge (not every tick while they linger together), and again next time they reunite. */
+  fullHouseActive: boolean;
   inspirationMinutes: number;
   inspirationCheckMinutes: number;
   emotionalGraph: EmotionalGraphState;
@@ -90,6 +93,8 @@ type GameState = GameSnapshot & {
   npc3Pos: Point;
   npc3Target: Point;
   npc3PauseUntil: number;
+  npc3StuckMs: number;         // ms Yebin has spent making no headway (→ detour, same as Path/Tom)
+  npc3Detour: Point | null;    // temporary waypoint to skirt whatever Yebin is snagged on
   npc3LeaveAt: number;
   npc3Seat: string | null;
   npc3Sitting: boolean;
@@ -485,6 +490,7 @@ const initialSession = () => ({
   dawOpen: false,
   workingOnMusic: false,
   musicQuality: 0,
+  fullHouseActive: false,
   inspirationMinutes: 0,
   inspirationCheckMinutes: 0,
   emotionalGraph: INITIAL_EMOTIONAL_GRAPH,
@@ -554,6 +560,8 @@ const initialSession = () => ({
   npc3Pos: { x: 256, y: 768 } as Point,
   npc3Target: { x: 256, y: 768 } as Point,
   npc3PauseUntil: 0,
+  npc3StuckMs: 0,
+  npc3Detour: null as Point | null,
   npc3LeaveAt: 0,
   npc3Seat: null as string | null,
   npc3Sitting: false,
@@ -697,6 +705,8 @@ export const useGameStore = create<GameState>((set) => ({
       visitorStuckMs: 0,
       npc2Detour: null,
       npc2StuckMs: 0,
+      npc3Detour: null,
+      npc3StuckMs: 0,
       // Collected fragments + completion persist (they're the whole point); only the transient pickup cue
       // and the open assembly panel are reset so a load never re-fires a toast or reopens the view.
       sheetPieceCue: { id: '', n: 0 },
@@ -850,9 +860,15 @@ export const useGameStore = create<GameState>((set) => ({
     if (badWeather) needs = applyNeedChange(needs, { energy: -(weather === 'hail' ? 0.13 : 0.07) * gameMinutes });
     if (state.npc2Active) needs = applyNeedChange(needs, { social: 0.025 * gameMinutes, love: 0.01 * gameMinutes });
     if (state.npc3Active) needs = applyNeedChange(needs, { social: 0.025 * gameMinutes, creativity: 0.015 * gameMinutes });
-    // A full house — NPC1, NPC2 AND NPC3 all in the room — sends social and creativity up sharply.
+    // A full house — NPC1, NPC2 AND NPC3 all in the room — sends social and creativity up sharply, and
+    // the moment they're ALL there together (rising edge, not every tick they linger) gives a one-time
+    // celebratory jolt: happiness (love + social, the two needs that most move the emotional crystal) and
+    // music quality each jump 40% closer to full. Re-fires the next time the trio reunites after breaking up.
     const fullHouse = state.visitorActive && state.npc2Active && state.npc3Active;
+    const fullHouseJustFormed = fullHouse && !state.fullHouseActive;
     if (fullHouse) needs = applyNeedChange(needs, { social: 0.35 * gameMinutes, creativity: 0.3 * gameMinutes, love: 0.12 * gameMinutes });
+    if (fullHouseJustFormed) needs = applyNeedChange(needs, { love: (100 - needs.love) * 0.4, social: (100 - needs.social) * 0.4 });
+    const boostedMusicQuality = fullHouseJustFormed ? clamp(state.musicQuality + (100 - state.musicQuality) * 0.4) : state.musicQuality;
     // Phone easter egg: very rarely the phone rings (blue) with a "pick up?" prompt — only when the third
     // friend isn't already here, nothing else is prompting, and the producer isn't mid-activity.
     let phoneRinging = state.phoneRinging;
@@ -923,6 +939,8 @@ export const useGameStore = create<GameState>((set) => ({
       // The one-shot ukulele performance ends on its timer; the prop returns to its spot beside the bed.
       playingUkulele: state.playingUkulele && elapsedMs < state.ukuleleUntil,
       workingOnMusic: state.friendActivity === 'tune' && state.friendActivityMinutes <= gameMinutes ? false : state.workingOnMusic,
+      fullHouseActive: fullHouse,
+      musicQuality: boostedMusicQuality,
       ...thoughtFrame,
       ...elevatorFrame,
     };
@@ -985,7 +1003,7 @@ export const useGameStore = create<GameState>((set) => ({
       confidence: liveConfidence,
       environment: liveEnvironment,
       sleep: liveSleep,
-      musicQuality: clamp(state.musicQuality + qualityRate * gameMinutes),
+      musicQuality: clamp(boostedMusicQuality + qualityRate * gameMinutes),
       albumProgress,
       albumCompleted,
       crystal,
@@ -1175,7 +1193,7 @@ export const useGameStore = create<GameState>((set) => ({
     };
     if (state.npc3Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc3Pos.x, ENTRANCE_POSITION.y - state.npc3Pos.y) || 1;
-      if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true };
+      if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true, npc3Detour: null, npc3StuckMs: 0 };
       return { npc3Pos: moveTo(ENTRANCE_POSITION), npc3Seat: null, npc3Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
     }
     // Heading to / sitting on a claimed sofa/bean-bag seat.
@@ -1183,7 +1201,7 @@ export const useGameStore = create<GameState>((set) => ({
       const s = seatPos(state.npc3Seat);
       if (!state.npc3Sitting) {
         if (Math.hypot(s.x - state.npc3Pos.x, s.y - state.npc3Pos.y) > 26) return { npc3Pos: moveToSeat(s) };
-        return { npc3Sitting: true, npc3Pos: s, npc3PauseUntil: state.elapsedMs + 6000 + Math.random() * 9000 };
+        return { npc3Sitting: true, npc3Pos: s, npc3PauseUntil: state.elapsedMs + 6000 + Math.random() * 9000, npc3Detour: null, npc3StuckMs: 0 };
       }
       if (state.elapsedMs < state.npc3PauseUntil) return state;
       return { npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 1400, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
@@ -1196,10 +1214,21 @@ export const useGameStore = create<GameState>((set) => ({
       if (seat && Math.random() < 0.6) return { npc3Seat: seat };
       return { npc3PauseUntil: state.elapsedMs + 1200 + Math.random() * 3000, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
     }
-    const npc3Pos = moveTo(state.npc3Target);
-    if (dist > 30 && Math.hypot(npc3Pos.x - state.npc3Pos.x, npc3Pos.y - state.npc3Pos.y) < step * 0.25) {
-      return { npc3Pos, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }), npc3PauseUntil: state.elapsedMs + 400 };
+    // Steer to an active detour waypoint first (it skirts whatever Yebin snagged on), then resume the target.
+    const npc3Pos = moveTo(state.npc3Detour ?? state.npc3Target);
+    const moved = Math.hypot(npc3Pos.x - state.npc3Pos.x, npc3Pos.y - state.npc3Pos.y);
+    // Reached the detour waypoint → drop it and head for the real target again.
+    if (state.npc3Detour && Math.hypot(npc3Pos.x - state.npc3Detour.x, npc3Pos.y - state.npc3Detour.y) <= 40) {
+      return { npc3Pos, npc3Detour: null, npc3StuckMs: 0 };
     }
-    return { npc3Pos };
+    // Same recovery as Path/Tom: grinding with no headway for ~3s → a collision-checked sidestep waypoint
+    // around the obstacle, instead of blindly re-picking a raw random point (which could land on the same
+    // blocked spot again and again — the "stuck retrying the same direction" glitch).
+    if (dist > 30 && moved < step * 0.25) {
+      const stuck = state.npc3StuckMs + deltaMs;
+      if (stuck >= 3000) return { npc3Pos, npc3Detour: pickDetour(state.npc3Pos, state.npc3Target), npc3StuckMs: 0 };
+      return { npc3Pos, npc3StuckMs: stuck };
+    }
+    return state.npc3StuckMs !== 0 ? { npc3Pos, npc3StuckMs: 0 } : { npc3Pos };
   }),
 }));
