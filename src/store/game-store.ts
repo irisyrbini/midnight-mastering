@@ -35,6 +35,10 @@ type GameState = GameSnapshot & {
   sheetRevealCue: SfxCue;  // fired when a fragment first spawns (subtle reveal sound)
   collectableInRangeId: string | null; // nearest floating fragment within reach (transient; set by renderer)
   sheetMusicOpen: boolean;
+  /** Mini-DAW arrangement: which collected sheet piece (by id) sits in which timeline cell. A piece can
+   *  occupy at most one cell; a cell can hold at most one piece. Persists like the sheet-music collection
+   *  itself (the player's arrangement shouldn't vanish on reload). */
+  placedClips: Record<string, { track: number; step: number }>;
   confidence: number;
   environment: number;
   sleep: number;
@@ -154,6 +158,8 @@ type GameState = GameSnapshot & {
   setCollectableInRange: (id: string | null) => void;
   openSheetMusic: () => void;
   closeSheetMusic: () => void;
+  placeClip: (pieceId: string, track: number, step: number) => void;
+  removeClip: (pieceId: string) => void;
 };
 
 export type PromptChoice = { label: string; kind: string };
@@ -505,6 +511,7 @@ const initialSession = () => ({
   sheetRevealCue: { id: '', n: 0 } as SfxCue,
   collectableInRangeId: null as string | null,
   sheetMusicOpen: false,
+  placedClips: {} as Record<string, { track: number; step: number }>,
   confidence: 38,
   environment: 52,
   sleep: 46,
@@ -1033,6 +1040,27 @@ export const useGameStore = create<GameState>((set) => ({
   setCollectableInRange: (id) => set((state) => (state.collectableInRangeId === id ? state : { collectableInRangeId: id })),
   openSheetMusic: () => set({ sheetMusicOpen: true }),
   closeSheetMusic: () => set({ sheetMusicOpen: false }),
+  // Mini-DAW arrangement. Only a COLLECTED piece can be placed (defense in depth — the panel already only
+  // offers collected pieces). Placing clears out whatever previously sat at that cell, and clears this same
+  // piece's old cell if it was already placed elsewhere, so the "one clip per piece, one piece per cell"
+  // invariant always holds without the caller having to reason about swaps.
+  placeClip: (pieceId, track, step) => set((state) => {
+    if (!state.sheetMusicPieces[pieceId]) return state;
+    const placedClips: Record<string, { track: number; step: number }> = {};
+    for (const [id, cell] of Object.entries(state.placedClips)) {
+      if (id === pieceId) continue; // drop its old placement
+      if (cell.track === track && cell.step === step) continue; // evict whatever was in the target cell
+      placedClips[id] = cell;
+    }
+    placedClips[pieceId] = { track, step };
+    return { placedClips };
+  }),
+  removeClip: (pieceId) => set((state) => {
+    if (!state.placedClips[pieceId]) return state;
+    const placedClips = { ...state.placedClips };
+    delete placedClips[pieceId];
+    return { placedClips };
+  }),
   dismissPrompt: () => set({ prompt: null }),
   choose: (kind) => set((state) => {
     if (kind === 'drink-beer') {
