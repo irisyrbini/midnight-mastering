@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/game-store';
 import { DAW_STEP_COUNT, DAW_STEP_MS, DAW_TRACK_COUNT, GROUP_COLOR, SOUND_BYTES, soundByteById } from '@/data/sound-bytes';
+import { stopAllSoundByteSamples } from '@/game/audio/sound-byte-samples';
 
 const REQUIRED_INSTRUMENTS = ['acousticGuitar', 'electricGuitar', 'portasound', 'sk5', 'modularSynths', 'mic', 'lyricNotebook'];
 const DRAG_THRESHOLD = 5; // px of pointer movement before a press becomes a drag rather than a click
@@ -74,6 +75,7 @@ export function DawPanel() {
 
   const stopPlayback = useCallback(() => {
     if (timerRef.current !== null) { window.clearInterval(timerRef.current); timerRef.current = null; }
+    stopAllSoundByteSamples(); // these are full-length real stems, not short decaying notes — cut them off explicitly
     setIsPlaying(false);
     setStep(0);
   }, []);
@@ -93,8 +95,9 @@ export function DawPanel() {
     });
   }, [playColumn]);
 
-  // Stop cleanly if the panel closes (or unmounts) mid-playback — never leave a stray interval running.
-  useEffect(() => () => { if (timerRef.current !== null) window.clearInterval(timerRef.current); }, []);
+  // Stop cleanly if the panel closes (or unmounts) mid-playback — never leave a stray interval or a real
+  // audio stem still ringing.
+  useEffect(() => () => { if (timerRef.current !== null) window.clearInterval(timerRef.current); stopAllSoundByteSamples(); }, []);
   useEffect(() => { if (!dawOpen) stopPlayback(); }, [dawOpen, stopPlayback]);
 
   // ── Drag-and-drop. A press becomes a drag once the pointer moves past a small threshold; until then it's

@@ -294,15 +294,6 @@ export function playSheetComplete() {
   [261.63, 329.63, 392.0, 587.33].forEach((f, i) => pluck(ac, f, t + i * 0.12, 2.2, 'sine', 0.6, 4200));
 }
 
-/** One clean synthesized note at `freq` — the fallback "sound byte" for a mini-DAW clip whose source object
- *  has no bespoke instrument SFX of its own (see data/sheet-music.ts SOUND_BYTES). Shares the same soft
- *  plucked-sine character as the elevator chime so it sits comfortably next to the real instrument sounds. */
-export function playSoundByteTone(freq: number) {
-  const ac = audio();
-  if (!ac) return;
-  pluck(ac, freq, ac.currentTime, 0.7, 'sine', 0.75, 5200);
-}
-
 /** Two-tone elevator arrival chime. */
 export function playElevatorDing() {
   const ac = audio();
