@@ -1,21 +1,38 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/game-store';
 import { DAW_STEP_COUNT, DAW_STEP_MS, DAW_TRACK_COUNT, GROUP_COLOR, SOUND_BYTES, soundByteById } from '@/data/sound-bytes';
 
 const REQUIRED_INSTRUMENTS = ['acousticGuitar', 'electricGuitar', 'portasound', 'sk5', 'modularSynths', 'mic', 'lyricNotebook'];
+const DRAG_THRESHOLD = 5; // px of pointer movement before a press becomes a drag rather than a click
 
 /** A short deterministic "waveform" for a clip block — same piece always draws the same squiggle, so the
  *  timeline reads as real audio clips rather than random noise on every render. */
-function waveformBars(seed: string, count = 14): number[] {
+function waveformBars(seed: string, count = 8): number[] {
   let h = 0;
   for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return Array.from({ length: count }, (_, i) => {
+  return Array.from({ length: count }, () => {
     h = (h * 1103515245 + 12345) >>> 0;
     return 0.25 + ((h >>> 8) % 100) / 100 * 0.7; // 0.25–0.95
   });
 }
+
+function Waveform({ id, group }: { id: string; group: keyof typeof GROUP_COLOR }) {
+  return (
+    <span className="pointer-events-none flex h-full w-full items-end justify-center gap-[1.5px] px-1 pb-1">
+      {waveformBars(id).map((h, i) => <span key={i} className="w-[2px] rounded-sm" style={{ height: `${h * 70}%`, backgroundColor: GROUP_COLOR[group] }} />)}
+    </span>
+  );
+}
+
+type DragState = {
+  pieceId: string;
+  from: { track: number; step: number } | null; // null = dragged straight from the palette, never placed yet
+  x: number; y: number;      // current pointer position, viewport coords (for the floating ghost)
+  overTrack: number | null;  // grid cell currently hovered, if any
+  overStep: number | null;
+};
 
 export function DawPanel() {
   const dawOpen = useGameStore((state) => state.dawOpen);
@@ -33,10 +50,14 @@ export function DawPanel() {
   const placeClip = useGameStore((state) => state.placeClip);
   const removeClip = useGameStore((state) => state.removeClip);
 
-  const [armed, setArmed] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [step, setStep] = useState(0);
   const timerRef = useRef<number | null>(null);
+
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null); // mirrors `drag` for the window listeners' closures
+  const cellRefs = useRef<(HTMLDivElement | null)[][]>(Array.from({ length: DAW_TRACK_COUNT }, () => Array(DAW_STEP_COUNT).fill(null)));
+  const pressRef = useRef<{ pieceId: string; from: { track: number; step: number } | null; startX: number; startY: number; dragging: boolean } | null>(null);
 
   // Cell lookup: track -> step -> pieceId, built fresh each render from the flat placedClips map.
   const grid: (string | null)[][] = Array.from({ length: DAW_TRACK_COUNT }, () => Array(DAW_STEP_COUNT).fill(null));
@@ -44,35 +65,87 @@ export function DawPanel() {
     if (grid[cell.track]) grid[cell.track][cell.step] = pieceId;
   }
 
-  const playColumn = (col: number) => {
+  const playColumn = useCallback((col: number) => {
     for (let track = 0; track < DAW_TRACK_COUNT; track += 1) {
       const pieceId = grid[track][col];
       if (pieceId) soundByteById[pieceId]?.play();
     }
-  };
+  }, [placedClips]); // eslint-disable-line react-hooks/exhaustive-deps -- `grid` is derived fresh from placedClips each render
 
-  const stopPlayback = () => {
+  const stopPlayback = useCallback(() => {
     if (timerRef.current !== null) { window.clearInterval(timerRef.current); timerRef.current = null; }
     setIsPlaying(false);
     setStep(0);
-  };
+  }, []);
 
-  const startPlayback = () => {
-    if (isPlaying) return;
-    setIsPlaying(true);
-    setStep(0);
-    playColumn(0);
-    let col = 0;
-    timerRef.current = window.setInterval(() => {
-      col = (col + 1) % DAW_STEP_COUNT;
-      setStep(col);
-      playColumn(col);
-    }, DAW_STEP_MS);
-  };
+  const startPlayback = useCallback(() => {
+    setIsPlaying((already) => {
+      if (already) return already;
+      setStep(0);
+      playColumn(0);
+      let col = 0;
+      timerRef.current = window.setInterval(() => {
+        col = (col + 1) % DAW_STEP_COUNT;
+        setStep(col);
+        playColumn(col);
+      }, DAW_STEP_MS);
+      return true;
+    });
+  }, [playColumn]);
 
   // Stop cleanly if the panel closes (or unmounts) mid-playback — never leave a stray interval running.
   useEffect(() => () => { if (timerRef.current !== null) window.clearInterval(timerRef.current); }, []);
-  useEffect(() => { if (!dawOpen) stopPlayback(); }, [dawOpen]);
+  useEffect(() => { if (!dawOpen) stopPlayback(); }, [dawOpen, stopPlayback]);
+
+  // ── Drag-and-drop. A press becomes a drag once the pointer moves past a small threshold; until then it's
+  //    a plain click (used to remove an already-placed clip with a single tap). While dragging, a floating
+  //    ghost clip follows the cursor and every grid cell's real DOM rect is hit-tested each move — this
+  //    avoids re-deriving the CSS grid's column math and stays correct if the layout ever changes. ──
+  const beginPress = (pieceId: string, from: { track: number; step: number } | null, e: React.PointerEvent) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    pressRef.current = { pieceId, from, startX: e.clientX, startY: e.clientY, dragging: false };
+  };
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const press = pressRef.current;
+      if (!press) return;
+      const dx = e.clientX - press.startX, dy = e.clientY - press.startY;
+      if (!press.dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      press.dragging = true;
+      // Hit-test every cell's real rect — small grid, negligible cost, and always exactly right.
+      let overTrack: number | null = null, overStep: number | null = null;
+      for (let t = 0; t < DAW_TRACK_COUNT && overTrack === null; t += 1) {
+        for (let s = 0; s < DAW_STEP_COUNT; s += 1) {
+          const el = cellRefs.current[t][s];
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) { overTrack = t; overStep = s; break; }
+        }
+      }
+      const next: DragState = { pieceId: press.pieceId, from: press.from, x: e.clientX, y: e.clientY, overTrack, overStep };
+      dragRef.current = next;
+      setDrag(next);
+    };
+    const onUp = () => {
+      const press = pressRef.current;
+      const current = dragRef.current;
+      if (press && !press.dragging) {
+        // A plain click (no real drag): clicking an already-placed clip removes it. Clicking a palette
+        // entry that hasn't moved does nothing — placement now happens by dragging, not by arming+tapping.
+        if (press.from) removeClip(press.pieceId);
+      } else if (current) {
+        if (current.overTrack !== null && current.overStep !== null) placeClip(current.pieceId, current.overTrack, current.overStep);
+        // else: released outside the valid grid area — cancelled, piece stays (or returns to) where it was.
+      }
+      pressRef.current = null;
+      dragRef.current = null;
+      setDrag(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+  }, [placeClip, removeClip]);
 
   if (!dawOpen) return null;
 
@@ -80,12 +153,10 @@ export function DawPanel() {
   const recorded = REQUIRED_INSTRUMENTS.filter((id) => instrumentsUsed[id]).length;
   const allRecorded = recorded === REQUIRED_INSTRUMENTS.length;
   const placedCount = Object.keys(placedClips).length;
+  const draggedByte = drag ? soundByteById[drag.pieceId] : null;
+  const dropOccupied = drag && drag.overTrack !== null && drag.overStep !== null && grid[drag.overTrack][drag.overStep] !== null && grid[drag.overTrack][drag.overStep] !== drag.pieceId;
 
-  const clickCell = (track: number, col: number) => {
-    const occupant = grid[track][col];
-    if (occupant) { removeClip(occupant); if (armed === occupant) setArmed(null); return; }
-    if (armed) { placeClip(armed, track, col); setArmed(null); }
-  };
+  const finishMix = () => { stopPlayback(); startPlayback(); };
 
   return <section className="absolute inset-x-[8%] bottom-8 top-[14%] z-10 overflow-hidden rounded-2xl border border-paper/50 bg-[#151c2a]/95 shadow-2xl backdrop-blur">
     <header className="flex items-center justify-between border-b border-paper/25 bg-[#24364f] px-5 py-3">
@@ -94,36 +165,39 @@ export function DawPanel() {
     </header>
 
     <div className="grid h-[calc(100%-72px)] grid-cols-[180px_1fr]">
-      {/* Sound-byte palette: one entry per sheet-music piece. Locked (uncollected) pieces read as dark torn
-          slots, matching the sheet-music view's language; collected + unplaced pieces are clickable clips
-          waiting to be armed; a collected piece currently on the timeline is dimmed here (it lives on the
-          grid now — click its block there to bring it back). */}
+      {/* Sound-byte palette. Locked (uncollected) pieces read as dark torn slots, matching the sheet-music
+          view's language. A collected, unplaced piece is a real draggable clip — press and drag it onto the
+          timeline; it is NOT a button, it never "does" anything on a plain click. A piece already on the
+          timeline is dimmed here (it lives on the grid now — drag its block there, or tap it to remove). */}
       <aside className="overflow-y-auto border-r border-paper/20 p-3">
         <p className="mb-2 px-1 text-[10px] tracking-[0.18em] text-paper/50">SOUND BYTES</p>
         <div className="space-y-1.5">
           {SOUND_BYTES.map((byte) => {
             const collected = !!sheetMusicPieces[byte.id];
             const placed = !!placedClips[byte.id];
+            const beingDragged = drag?.pieceId === byte.id && !drag.from;
             if (!collected) return <div key={byte.id} className="rounded-md border border-dashed border-paper/15 bg-black/20 px-2.5 py-1.5 text-[11px] text-paper/25">Locked fragment</div>;
-            return (
-              <button
-                key={byte.id}
-                disabled={placed}
-                onClick={() => setArmed((cur) => (cur === byte.id ? null : byte.id))}
-                className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[11px] transition-colors ${
-                  placed ? 'cursor-default border-paper/10 bg-black/10 text-paper/25'
-                  : armed === byte.id ? 'border-[#d8c79c] bg-[#d8c79c]/15 text-paper'
-                  : 'border-paper/20 bg-paper/5 text-paper/85 hover:bg-paper/10'
-                }`}
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: placed ? 'rgba(255,255,255,0.15)' : GROUP_COLOR[byte.group] }} />
+            if (placed) return (
+              <div key={byte.id} className="flex w-full cursor-default items-center gap-2 rounded-md border border-paper/10 bg-black/10 px-2.5 py-1.5 text-left text-[11px] text-paper/25">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />
                 <span className="truncate">{byte.label}</span>
-                {placed && <span className="ml-auto shrink-0 text-[9px] tracking-wide">on grid</span>}
-              </button>
+                <span className="ml-auto shrink-0 text-[9px] tracking-wide">on grid</span>
+              </div>
+            );
+            return (
+              <div
+                key={byte.id}
+                onPointerDown={(e) => beginPress(byte.id, null, e)}
+                style={{ touchAction: 'none', opacity: beingDragged ? 0.35 : 1 }}
+                className="flex w-full cursor-grab select-none items-center gap-2 rounded-md border border-paper/20 bg-paper/5 px-2.5 py-1.5 text-left text-[11px] text-paper/85 transition-colors hover:bg-paper/10 active:cursor-grabbing"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: GROUP_COLOR[byte.group] }} />
+                <span className="truncate">{byte.label}</span>
+              </div>
             );
           })}
         </div>
-        {armed && <p className="mt-3 rounded-md border border-[#d8c79c]/40 bg-[#d8c79c]/10 px-2.5 py-2 text-[10px] leading-snug text-[#e9dcc0]">Tap an empty cell on the timeline to drop it in.</p>}
+        <p className="mt-3 text-[10px] leading-snug text-paper/35">Drag a sound byte onto the timeline. Drag a placed clip to move it; tap it once to send it back.</p>
       </aside>
 
       {/* Timeline / arrangement view. */}
@@ -137,6 +211,7 @@ export function DawPanel() {
             {isPlaying ? <span className="h-2.5 w-2.5 bg-current" /> : <span className="ml-0.5 h-0 w-0 border-y-[6px] border-l-[9px] border-y-transparent border-l-current" />}
           </button>
           <p className="font-mono text-xs text-paper/55">Bar 1 · step {step + 1}/{DAW_STEP_COUNT}</p>
+          <button onClick={finishMix} disabled={placedCount === 0} className="ml-2 rounded-md border border-[#d8c79c]/50 bg-[#d8c79c]/10 px-3 py-1 text-xs font-medium text-[#e9dcc0] transition-colors hover:bg-[#d8c79c]/20 disabled:cursor-not-allowed disabled:opacity-30">Mix / Finish</button>
           <p className="ml-auto text-xs text-paper/50">{placedCount} clip{placedCount === 1 ? '' : 's'} arranged</p>
         </div>
 
@@ -158,24 +233,28 @@ export function DawPanel() {
                   const pieceId = grid[track][col];
                   const byte = pieceId ? soundByteById[pieceId] : null;
                   const active = isPlaying && step === col;
+                  const isDragSource = drag?.from && drag.from.track === track && drag.from.step === col;
+                  const isHovered = drag && drag.overTrack === track && drag.overStep === col;
                   return (
-                    <button
+                    <div
                       key={col}
-                      onClick={() => clickCell(track, col)}
-                      className={`relative overflow-hidden rounded border transition-colors ${
-                        byte ? 'border-transparent' : armed ? 'border-dashed border-[#d8c79c]/45 bg-paper/[0.03] hover:bg-[#d8c79c]/10' : 'border-paper/10 bg-paper/[0.02]'
-                      } ${active && !byte ? 'border-[#d8c79c]/50 bg-[#d8c79c]/10' : ''}`}
-                      style={byte ? { backgroundColor: `${GROUP_COLOR[byte.group]}33`, boxShadow: active ? `inset 0 0 0 2px #d8c79c` : undefined } : undefined}
-                      title={byte ? `${byte.label} — click to remove` : armed ? 'Place here' : undefined}
+                      ref={(el) => { cellRefs.current[track][col] = el; }}
+                      onPointerDown={byte ? (e) => beginPress(byte.id, { track, step: col }, e) : undefined}
+                      style={{
+                        touchAction: 'none',
+                        ...(byte && !isDragSource ? { backgroundColor: `${GROUP_COLOR[byte.group]}33` } : {}),
+                        boxShadow: active && !byte ? undefined : active ? `inset 0 0 0 2px #d8c79c` : isHovered ? `inset 0 0 0 2px ${dropOccupied ? '#d84f59' : '#6d9c7b'}` : undefined,
+                      }}
+                      className={`relative select-none overflow-hidden rounded border transition-colors ${
+                        isDragSource ? 'border-dashed border-paper/20 bg-paper/[0.02] opacity-40'
+                        : byte ? 'cursor-grab border-transparent active:cursor-grabbing'
+                        : drag ? 'border-dashed border-[#d8c79c]/35 bg-paper/[0.03]'
+                        : 'border-paper/10 bg-paper/[0.02]'
+                      } ${active && !byte && !isHovered ? 'bg-[#d8c79c]/10' : ''} ${isHovered && !byte ? (dropOccupied ? 'bg-[#d84f59]/10' : 'bg-[#6d9c7b]/10') : ''}`}
+                      title={byte ? `${byte.label} — drag to move, tap to remove` : undefined}
                     >
-                      {byte && (
-                        <span className="pointer-events-none flex h-full w-full items-end justify-center gap-[1.5px] px-1 pb-1">
-                          {waveformBars(byte.id, 8).map((h, i) => (
-                            <span key={i} className="w-[2px] rounded-sm" style={{ height: `${h * 70}%`, backgroundColor: GROUP_COLOR[byte.group] }} />
-                          ))}
-                        </span>
-                      )}
-                    </button>
+                      {byte && !isDragSource && <Waveform id={byte.id} group={byte.group} />}
+                    </div>
                   );
                 })}
               </div>
@@ -199,5 +278,15 @@ export function DawPanel() {
         </div>
       </div>
     </div>
+
+    {/* Floating drag ghost — follows the cursor exactly; pointer-events-none so it never steals the drop hit-test. */}
+    {drag && draggedByte && (
+      <div
+        className="pointer-events-none fixed z-50 flex h-10 w-24 items-end justify-center gap-[1.5px] rounded border-2 px-1 pb-1 shadow-2xl"
+        style={{ left: drag.x - 48, top: drag.y - 20, backgroundColor: `${GROUP_COLOR[draggedByte.group]}55`, borderColor: GROUP_COLOR[draggedByte.group] }}
+      >
+        {waveformBars(draggedByte.id).map((h, i) => <span key={i} className="w-[2px] rounded-sm" style={{ height: `${h * 70}%`, backgroundColor: GROUP_COLOR[draggedByte.group] }} />)}
+      </div>
+    )}
   </section>;
 }

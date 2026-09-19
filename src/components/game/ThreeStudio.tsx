@@ -656,9 +656,18 @@ const JONNY_LIE: PoseCalib = { rootY: 0.8, rootZ: 0.2, yawOffset: 0 };  // GLB l
 // scroll.fbx is a DIFFERENT rig/clip than lie.glb (its own bind height, quaternion-only), so it needs its
 // own root height to actually rest the back on the mattress instead of floating at the GLB lie height.
 const JONNY_SCROLL: PoseCalib = { rootY: 0.42, rootZ: 0.2, yawOffset: 0 };
-const PATH_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 };  // NPC1 shadow/sit.glb + maketune.fbx
-const TOM_SIT: PoseCalib = { rootY: 0.12, rootZ: 0, yawOffset: Math.PI };   // NPC2 clap/drink FBX (own rig)
-const TOM_SIT_PITCH = 0; // the clap/drink clips are already an upright standing pose - no pitch correction needed
+// maketune.fbx is authored on Jonny's rig and re-bound to Path's TALLER Shadow Frequency skeleton by bone
+// name only — its own Hips Y track reflects Jonny's floor-to-hip distance, not Path's, and combined with a
+// small flat offset it left Path's pelvis mostly below the floor (visually "sitting on the floor through
+// the chair"). The clip's Hips position is now fully zeroed (anchorHipsFullyInPlace) so this rootY alone —
+// visually calibrated against the actual chair geometry — places him correctly on the seat.
+const PATH_SIT: PoseCalib = { rootY: 0.88, rootZ: -0.1, yawOffset: -Math.PI / 2 };  // NPC1 shadow/sit.glb + maketune.fbx
+// Tom's clap/drink FBX clips are authored bent forward from the waist throughout their ENTIRE duration (not
+// just their held end frame) — there is no upright "sit" moment anywhere in either clip. Visually calibrated
+// (not just numerically) against the actual sofa geometry: pitching the body -63° turns the forward hunch
+// into a natural "leaning forward, elbows toward knees" seated posture, lifted and pushed onto the cushion.
+const TOM_SIT: PoseCalib = { rootY: 0.62, rootZ: 0.75, yawOffset: Math.PI };   // NPC2 clap/drink FBX (own rig)
+const TOM_SIT_PITCH = -1.1; // radians — visually calibrated, see comment above
 const YEBIN_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // NPC3 sit.glb
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
@@ -745,6 +754,17 @@ function anchorHipsInPlace(clip: THREE.AnimationClip | undefined): THREE.Animati
   if (!clip) return clip;
   const t = clip.tracks.find((tr) => /Hips\.position$/.test(tr.name));
   if (t) { const v = t.values; for (let i = 0; i < v.length; i += 3) { v[i] = 0; v[i + 2] = 0; } }
+  return clip;
+}
+/** Like anchorHipsInPlace, but also zeroes Hips Y: for a clip authored on a DIFFERENT rig's proportions
+ *  (Jonny's maketune.fbx re-bound to Path's taller Shadow Frequency skeleton by bone name), the source
+ *  clip's own Y track reflects THAT rig's floor-to-hip distance, not Path's — combined with a flat group
+ *  offset it put his pelvis far below the chair seat. Fully anchoring the root and driving seat height
+ *  entirely from PATH_SIT.rootY makes the result predictable and correctly scaled to Path's own body. */
+function anchorHipsFullyInPlace(clip: THREE.AnimationClip | undefined): THREE.AnimationClip | undefined {
+  if (!clip) return clip;
+  const t = clip.tracks.find((tr) => /Hips\.position$/.test(tr.name));
+  if (t) t.values.fill(0);
   return clip;
 }
 
@@ -985,55 +1005,6 @@ function TunePerformance() {
   return <group ref={body}><Sparkles count={8} scale={[0.7, 0.8, 0.5]} size={1.2} speed={1.6} color="#e6c34c" /></group>;
 }
 
-/** Procedural fallback body for Path (NPC1) — shown only while the Shadow Frequency GLB streams in. */
-function VisitorProcedural() {
-  const active = useGameStore((state) => state.visitorActive);
-  const vpos = useGameStore((state) => state.visitorPos);
-  const ppos = useGameStore((state) => state.playerPosition);
-  const selectObject = useGameStore((state) => state.selectObject);
-  const friendActivity = useGameStore((state) => state.friendActivity);
-  const friendMenuOpen = useGameStore((state) => state.friendMenuOpen);
-  const selected = useGameStore((state) => state.selectedObjectId === 'visitor');
-  const sipTimer = useRef(3.5);
-  const sipProgress = useRef(0);
-  const drinkGlass = useRef<THREE.Group>(null);
-  useEffect(() => {
-    if (!active || friendActivity || friendMenuOpen || !useGameStore.getState().visitorActive) return;
-    const timer = window.setInterval(() => playModularPatch(), 5200 + Math.random() * 3600);
-    return () => window.clearInterval(timer);
-  }, [active, friendActivity, friendMenuOpen]);
-  useFrame((_, delta) => {
-    if (friendActivity !== 'vodka') { sipProgress.current = 0; sipTimer.current = 3.5 + Math.random() * 4; return; }
-    if (sipProgress.current > 0) { sipProgress.current += delta; if (sipProgress.current > 1.7) sipProgress.current = 0; return; }
-    sipTimer.current -= delta;
-    if (sipTimer.current <= 0) { sipProgress.current = 0.01; sipTimer.current = 4 + Math.random() * 7; }
-    if (drinkGlass.current) {
-      const sipping = sipProgress.current > 0.05;
-      drinkGlass.current.position.y += ((sipping ? 1.28 : 0.92) - drinkGlass.current.position.y) * Math.min(1, delta * 8);
-      drinkGlass.current.rotation.x += ((sipping ? -0.5 : 0) - drinkGlass.current.rotation.x) * Math.min(1, delta * 8);
-    }
-  });
-  if (!active) return null;
-  const [vx, vz] = toWorld(vpos.x, vpos.y);
-  const [px, pz] = toWorld(ppos.x, ppos.y);
-  const facing = Math.atan2(-(px - vx), -(pz - vz));
-  const [sx, sz] = toWorld(323, 277);
-  const synthFacing = Math.atan2(-(sx - vx), -(sz - vz));
-  if (friendActivity === 'tune' || friendActivity === 'vodka' || friendActivity === 'video-game') return <group position={[vx, 0, vz]} rotation={[0, 0, 0]} scale={1.22} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><SittingLegs /><FriendTorso hipY={0.62} groove={friendActivity === 'tune'} />{friendActivity === 'vodka' && <group ref={drinkGlass} position={[-0.22, 0.92, -0.32]}><mesh><cylinderGeometry args={[0.09, 0.1, 0.2, 12]} /><meshStandardMaterial color="#e7e1d5" transparent opacity={0.75} /></mesh></group>}</group>;
-  return <group position={[vx, 0, vz]} rotation={[0, friendActivity ? facing : synthFacing, 0]} scale={1.22} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}>
-    {/* Tall, slender friend: oversized boots, narrow silhouette, and individual dreadlock strands. */}
-    <mesh position={[-0.14, 0.45, 0]} castShadow><capsuleGeometry args={[0.09, 0.72, 4, 8]} /><meshStandardMaterial color="#293026" /></mesh>
-    <mesh position={[0.14, 0.45, 0]} castShadow><capsuleGeometry args={[0.09, 0.72, 4, 8]} /><meshStandardMaterial color="#293026" /></mesh>
-    <mesh position={[-0.14, 0.07, -0.14]} castShadow><boxGeometry args={[0.25, 0.16, 0.48]} /><meshStandardMaterial color="#17140f" /></mesh>
-    <mesh position={[0.14, 0.07, -0.14]} castShadow><boxGeometry args={[0.25, 0.16, 0.48]} /><meshStandardMaterial color="#17140f" /></mesh>
-    <FriendTorso hipY={0.82} />
-    {!friendActivity && !friendMenuOpen && <SynthPerformance />}
-    {!friendActivity && <mesh position={[0, 1.15, 0.18]} onClick={(event) => { event.stopPropagation(); selectObject('visitor'); }}><boxGeometry args={[0.8, 1.7, 0.18]} /><meshBasicMaterial transparent opacity={0} /></mesh>}
-    {/* No narration plate — the label only appears as an affordance when the friend is selected. */}
-    {selected && <Html center position={[0, 2.65, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">FRIEND · ENTER</div></Html>}
-  </group>;
-}
-
 // ── Path = NPC1, rendered with the Meshy "Shadow Frequency" GLB (same 24-bone rig as Jonny, so it reuses
 //    the GLB-driver + silhouette system). Path is driven ENTIRELY by the existing NPC1 (visitor) store
 //    state: walks in to the modular synth, stands/plays it, sits with the producer for activities, then
@@ -1065,7 +1036,7 @@ function Npc1Model() {
     bones.current = grabPoseBones(root);
     return root;
   }, [walkGlb.scene, silhouette]);
-  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true), anchorHipsInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01))].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx]);
+  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true), anchorHipsFullyInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01))].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx]);
   const group = useRef<THREE.Group>(null);
   const drinkGlass = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
@@ -1311,9 +1282,10 @@ function Npc2Model() {
       const targetYaw = faceYawTo(s.npc2Pos, DESK_FACE_TARGET) + TOM_SIT.yawOffset;
       c.facing += Math.atan2(Math.sin(targetYaw - c.facing), Math.cos(targetYaw - c.facing)) * ease;
       inner.current.position.set(0, TOM_SIT.rootY, TOM_SIT.rootZ);
-      // Tom's clap/drink clips bake a deep forward hunch that reads as "face-down at the floor". Pitch the
-      // seated body back so he sits upright on the cushion (his rig has no neutral seated pose to use).
+      // Tom's clap/drink clips bake a deep forward hunch throughout their whole duration (see TOM_SIT_PITCH
+      // comment) — pitch the seated body to turn that hunch into a natural forward-leaning seated posture.
       inner.current.rotation.x = TOM_SIT_PITCH;
+      inner.current.rotation.z = 0;
     }
     else {
       inner.current.position.set(0, 0, 0);
@@ -1327,7 +1299,13 @@ function Npc2Model() {
     if (want !== c.clip) {
       if (c.clip) actions[c.clip]?.fadeOut(0.2);
       const next = actions[want];
-      if (next) { next.reset(); const once = want === 'clap' || want === 'drink'; next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); next.clampWhenFinished = once; next.fadeIn(0.2).play(); }
+      if (next) {
+        next.reset();
+        const once = want === 'clap' || want === 'drink';
+        next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
+        next.clampWhenFinished = once;
+        next.fadeIn(0.2).play();
+      }
       c.clip = want;
     }
   });
