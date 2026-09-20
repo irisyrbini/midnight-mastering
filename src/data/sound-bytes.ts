@@ -8,10 +8,10 @@ import { playSoundByteSample, preloadSoundByteSamples } from '@/game/audio/sound
  * SOUND_BYTE_FILES below) — the same id is used as the sheet-music piece id, the sound-byte id, the DAW
  * clip id, and the save-file key, so there is exactly one stable identifier per sound all the way through.
  */
-// The arrangement grid's shape: 4 lanes, an 8-step bar, played back at a fixed, unhurried tempo. Deliberately
-// small — this is a gameplay representation of composing, not a real sequencer.
-export const DAW_TRACK_COUNT = 4;
-export const DAW_STEP_COUNT = 8;
+// The arrangement grid's shape: one lane per sound byte, a 16-step bar, played back at a fixed, unhurried
+// tempo. Still a gameplay representation of composing, not a real sequencer — just a bigger canvas.
+export const DAW_TRACK_COUNT = 20;
+export const DAW_STEP_COUNT = 16;
 export const DAW_STEP_MS = 320; // playhead dwell time per step while playing
 
 export type SoundByteGroup = 'setup' | 'instrument' | 'voice' | 'life';

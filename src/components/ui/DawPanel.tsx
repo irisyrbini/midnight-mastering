@@ -204,7 +204,7 @@ export function DawPanel() {
       </aside>
 
       {/* Timeline / arrangement view. */}
-      <div className="relative flex flex-col p-5">
+      <div className="relative flex min-h-0 flex-col p-5">
         <div className="flex items-center gap-3">
           <button
             onClick={isPlaying ? stopPlayback : startPlayback}
@@ -218,8 +218,10 @@ export function DawPanel() {
           <p className="ml-auto text-xs text-paper/50">{placedCount} clip{placedCount === 1 ? '' : 's'} arranged</p>
         </div>
 
-        {/* Track lanes + step grid. */}
-        <div className="relative mt-4 flex-1 rounded-lg border border-paper/15 bg-black/20 p-3">
+        {/* Track lanes + step grid. 20 lanes no longer fit one-per-fraction in the available height, so the
+            lanes get a fixed row height and the whole block scrolls vertically; the step ruler stays pinned
+            above it (not inside the scroll area) so the playhead labels are always visible. */}
+        <div className="relative mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-paper/15 bg-black/20 p-3">
           {/* Step ruler — shares the exact same column template as the track rows below, so the highlighted
               step lines up with the playhead without any pixel-math guesswork. */}
           <div className="mb-2 grid items-stretch gap-1.5" style={{ gridTemplateColumns: `56px repeat(${DAW_STEP_COUNT}, 1fr)` }}>
@@ -228,7 +230,7 @@ export function DawPanel() {
               <div key={col} className={`rounded-sm py-0.5 text-center font-mono text-[9px] transition-colors ${isPlaying && step === col ? 'bg-[#d8c79c]/25 text-[#d8c79c]' : 'text-paper/30'}`}>{col + 1}</div>
             ))}
           </div>
-          <div className="grid" style={{ gridTemplateRows: `repeat(${DAW_TRACK_COUNT}, 1fr)`, gap: '0.5rem', height: 'calc(100% - 1.5rem)' }}>
+          <div className="grid min-h-0 flex-1 content-start overflow-y-auto" style={{ gridTemplateRows: `repeat(${DAW_TRACK_COUNT}, 28px)`, gap: '0.375rem' }}>
             {Array.from({ length: DAW_TRACK_COUNT }, (_, track) => (
               <div key={track} className="grid items-stretch gap-1.5" style={{ gridTemplateColumns: `56px repeat(${DAW_STEP_COUNT}, 1fr)` }}>
                 <div className="flex items-center text-[10px] tracking-wide text-paper/40">Track {track + 1}</div>
