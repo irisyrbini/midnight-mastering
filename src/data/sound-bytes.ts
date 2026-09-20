@@ -20,7 +20,7 @@ export type SoundByte = {
   id: string;          // == the sheet-piece id it's unlocked by
   label: string;
   group: SoundByteGroup;
-  play: () => void;
+  play: (volume?: number) => void; // volume 0–1, driven by the DAW's per-track mixer (see game-store trackVolume)
 };
 
 const GROUP_BY_ID: Record<string, SoundByteGroup> = {
@@ -83,7 +83,7 @@ export const SOUND_BYTES: readonly SoundByte[] = SHEET_PIECE_IDS.map((id) => ({
   id,
   label: pieceLabel(id),
   group: GROUP_BY_ID[id] ?? 'setup',
-  play: () => playSoundByteSample(id),
+  play: (volume) => playSoundByteSample(id, volume),
 }));
 
 export const soundByteById = Object.fromEntries(SOUND_BYTES.map((b) => [b.id, b])) as Record<string, SoundByte>;

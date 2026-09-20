@@ -43,18 +43,23 @@ export function preloadSoundByteSamples(files: Record<string, string>) {
   for (const [id, url] of Object.entries(files)) void load(id, url);
 }
 
-/** Trigger a sound byte's real sample from the start. If it's still sounding from a previous trigger
- *  (the DAW's 8-step loop is much shorter than these ~20s stems, so it comes back around before one
- *  finishes), the previous instance is stopped first — one voice per byte, never a stack of overlapping
- *  copies of the same file. No-ops silently if the buffer isn't loaded (or failed to load). */
-export function playSoundByteSample(id: string) {
+/** Trigger a sound byte's real sample from the start, at `volume` (0–1, default full). If it's still
+ *  sounding from a previous trigger (the DAW's step loop is much shorter than these ~20s stems, so it
+ *  comes back around before one finishes), the previous instance is stopped first — one voice per byte,
+ *  never a stack of overlapping copies of the same file. No-ops silently if the buffer isn't loaded (or
+ *  failed to load), and if `volume` is 0 (the track is muted) it skips starting a source at all. */
+export function playSoundByteSample(id: string, volume = 1) {
   const ac = audioCtx();
   const buffer = buffers.get(id);
   if (!ac || !buffer) return;
   playing.get(id)?.stop();
+  if (volume <= 0) { playing.delete(id); return; }
   const src = ac.createBufferSource();
   src.buffer = buffer;
-  src.connect(ac.destination);
+  const gain = ac.createGain();
+  gain.gain.value = volume;
+  src.connect(gain);
+  gain.connect(ac.destination);
   src.onended = () => { if (playing.get(id) === src) playing.delete(id); };
   src.start();
   playing.set(id, src);

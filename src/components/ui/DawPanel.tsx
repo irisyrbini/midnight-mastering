@@ -50,6 +50,10 @@ export function DawPanel() {
   const placedClips = useGameStore((state) => state.placedClips);
   const placeClip = useGameStore((state) => state.placeClip);
   const removeClip = useGameStore((state) => state.removeClip);
+  const trackMuted = useGameStore((state) => state.trackMuted);
+  const trackVolume = useGameStore((state) => state.trackVolume);
+  const toggleTrackMute = useGameStore((state) => state.toggleTrackMute);
+  const setTrackVolume = useGameStore((state) => state.setTrackVolume);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [step, setStep] = useState(0);
@@ -68,10 +72,11 @@ export function DawPanel() {
 
   const playColumn = useCallback((col: number) => {
     for (let track = 0; track < DAW_TRACK_COUNT; track += 1) {
+      if (trackMuted[track]) continue;
       const pieceId = grid[track][col];
-      if (pieceId) soundByteById[pieceId]?.play();
+      if (pieceId) soundByteById[pieceId]?.play(trackVolume[track]);
     }
-  }, [placedClips]); // eslint-disable-line react-hooks/exhaustive-deps -- `grid` is derived fresh from placedClips each render
+  }, [placedClips, trackMuted, trackVolume]); // eslint-disable-line react-hooks/exhaustive-deps -- `grid` is derived fresh from placedClips each render
 
   const stopPlayback = useCallback(() => {
     if (timerRef.current !== null) { window.clearInterval(timerRef.current); timerRef.current = null; }
@@ -224,16 +229,43 @@ export function DawPanel() {
         <div className="relative mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-paper/15 bg-black/20 p-3">
           {/* Step ruler — shares the exact same column template as the track rows below, so the highlighted
               step lines up with the playhead without any pixel-math guesswork. */}
-          <div className="mb-2 grid items-stretch gap-1.5" style={{ gridTemplateColumns: `56px repeat(${DAW_STEP_COUNT}, 1fr)` }}>
+          <div className="mb-2 grid items-stretch gap-1.5" style={{ gridTemplateColumns: `148px repeat(${DAW_STEP_COUNT}, 1fr)` }}>
             <div />
             {Array.from({ length: DAW_STEP_COUNT }, (_, col) => (
               <div key={col} className={`rounded-sm py-0.5 text-center font-mono text-[9px] transition-colors ${isPlaying && step === col ? 'bg-[#d8c79c]/25 text-[#d8c79c]' : 'text-paper/30'}`}>{col + 1}</div>
             ))}
           </div>
           <div className="grid min-h-0 flex-1 content-start overflow-y-auto" style={{ gridTemplateRows: `repeat(${DAW_TRACK_COUNT}, 28px)`, gap: '0.375rem' }}>
-            {Array.from({ length: DAW_TRACK_COUNT }, (_, track) => (
-              <div key={track} className="grid items-stretch gap-1.5" style={{ gridTemplateColumns: `56px repeat(${DAW_STEP_COUNT}, 1fr)` }}>
-                <div className="flex items-center text-[10px] tracking-wide text-paper/40">Track {track + 1}</div>
+            {Array.from({ length: DAW_TRACK_COUNT }, (_, track) => {
+              const muted = trackMuted[track];
+              const volume = trackVolume[track];
+              return (
+              <div key={track} className="grid items-stretch gap-1.5" style={{ gridTemplateColumns: `148px repeat(${DAW_STEP_COUNT}, 1fr)` }}>
+                {/* Per-track mixer strip: track number, mute toggle, volume slider. Mute/volume apply to
+                    whatever clip currently sits in this row — a track is a slot, not a fixed instrument. */}
+                <div className="flex items-center gap-1.5 pr-1">
+                  <span className="w-4 shrink-0 text-right text-[9px] tracking-wide text-paper/40">{track + 1}</span>
+                  <button
+                    onClick={() => toggleTrackMute(track)}
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border text-[8px] font-bold leading-none transition-colors ${
+                      muted ? 'border-[#d84f59] bg-[#d84f59]/25 text-[#f19a9f]' : 'border-paper/25 text-paper/40 hover:bg-paper/10'
+                    }`}
+                    title={muted ? `Track ${track + 1} muted — click to unmute` : `Mute track ${track + 1}`}
+                    aria-pressed={muted}
+                  >
+                    M
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(volume * 100)}
+                    onChange={(e) => setTrackVolume(track, Number(e.currentTarget.value) / 100)}
+                    className="h-1 w-16 shrink-0 accent-[#d8c79c] disabled:opacity-30"
+                    disabled={muted}
+                    title={`Track ${track + 1} volume — ${Math.round(volume * 100)}%`}
+                  />
+                </div>
                 {Array.from({ length: DAW_STEP_COUNT }, (_, col) => {
                   const pieceId = grid[track][col];
                   const byte = pieceId ? soundByteById[pieceId] : null;
@@ -247,6 +279,7 @@ export function DawPanel() {
                       onPointerDown={byte ? (e) => beginPress(byte.id, { track, step: col }, e) : undefined}
                       style={{
                         touchAction: 'none',
+                        opacity: muted ? 0.35 : 1,
                         ...(byte && !isDragSource ? { backgroundColor: `${GROUP_COLOR[byte.group]}33` } : {}),
                         boxShadow: active && !byte ? undefined : active ? `inset 0 0 0 2px #d8c79c` : isHovered ? `inset 0 0 0 2px ${dropOccupied ? '#d84f59' : '#6d9c7b'}` : undefined,
                       }}
@@ -263,7 +296,8 @@ export function DawPanel() {
                   );
                 })}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

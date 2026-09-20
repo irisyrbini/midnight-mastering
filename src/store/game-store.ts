@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { interactionById } from '@/data/interactions';
 import { SHEET_PIECE_IDS, SHEET_PIECE_TOTAL, collectedCount } from '@/data/sheet-music';
+import { DAW_TRACK_COUNT } from '@/data/sound-bytes';
 import { STUDIO_OBJECTS, CHAIR_SIT_ANCHOR, BED_LIE_ANCHOR, SYNTH_PERFORMANCE_ANCHOR, NPC1_IDLE_SPOTS, UKULELE_ANCHOR } from '@/data/studio-layout';
 import { crystalState, emotionalNeedDrift, INITIAL_EMOTIONAL_GRAPH, resolveEmotionGraph, weightedEmotionalScore } from '@/game/simulation/emotionalGraph';
 import type { CrystalState, EmotionalEffect, Ending, EmotionalGraphState, FriendActivity, GamePhase, GameSnapshot, Interaction, NeedChange, ProducerNeeds, WeatherKind } from '@/types/game';
@@ -39,6 +40,11 @@ type GameState = GameSnapshot & {
    *  occupy at most one cell; a cell can hold at most one piece. Persists like the sheet-music collection
    *  itself (the player's arrangement shouldn't vanish on reload). */
   placedClips: Record<string, { track: number; step: number }>;
+  /** Per-track (row) mixer state, indexed by track number — a track's mute/volume applies to whatever clip
+   *  currently sits in that row, since a row isn't tied to one specific sound byte. Persists with the rest
+   *  of the arrangement. */
+  trackMuted: boolean[];
+  trackVolume: number[]; // 0–1, one per track
   confidence: number;
   environment: number;
   sleep: number;
@@ -160,6 +166,8 @@ type GameState = GameSnapshot & {
   closeSheetMusic: () => void;
   placeClip: (pieceId: string, track: number, step: number) => void;
   removeClip: (pieceId: string) => void;
+  toggleTrackMute: (track: number) => void;
+  setTrackVolume: (track: number, volume: number) => void;
 };
 
 export type PromptChoice = { label: string; kind: string };
@@ -512,6 +520,8 @@ const initialSession = () => ({
   collectableInRangeId: null as string | null,
   sheetMusicOpen: false,
   placedClips: {} as Record<string, { track: number; step: number }>,
+  trackMuted: Array(DAW_TRACK_COUNT).fill(false) as boolean[],
+  trackVolume: Array(DAW_TRACK_COUNT).fill(1) as number[],
   confidence: 38,
   environment: 52,
   sleep: 46,
@@ -1060,6 +1070,16 @@ export const useGameStore = create<GameState>((set) => ({
     const placedClips = { ...state.placedClips };
     delete placedClips[pieceId];
     return { placedClips };
+  }),
+  toggleTrackMute: (track) => set((state) => {
+    const trackMuted = [...state.trackMuted];
+    trackMuted[track] = !trackMuted[track];
+    return { trackMuted };
+  }),
+  setTrackVolume: (track, volume) => set((state) => {
+    const trackVolume = [...state.trackVolume];
+    trackVolume[track] = Math.min(1, Math.max(0, volume));
+    return { trackVolume };
   }),
   dismissPrompt: () => set({ prompt: null }),
   choose: (kind) => set((state) => {
