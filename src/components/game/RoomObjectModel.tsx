@@ -454,7 +454,7 @@ function Sofa() {
 
 /** Wall poster with two colour panels. `drop` hangs it lower to break an even row line. */
 function Poster({ top, bottom, drop = 0 }: { top: string; bottom: string; drop?: number }) {
-  return <group position={[0, 2.05 - drop, 0]}>
+  return <group position={[0, 2.35 - drop, 0]}>
     <mesh><boxGeometry args={[1.1, 1.4, 0.05]} /><meshStandardMaterial color="#241b2b" /></mesh>
     <mesh position={[0, 0.24, 0.03]}><planeGeometry args={[0.9, 0.72]} /><meshStandardMaterial color={top} emissive={top} emissiveIntensity={0.14} /></mesh>
     <mesh position={[0, -0.42, 0.03]}><planeGeometry args={[0.9, 0.42]} /><meshStandardMaterial color={bottom} /></mesh>
@@ -509,7 +509,9 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
     case 'laptop': return <group position={[0, DESK_Y + 0.02, 0]}>
       <mesh position={[0, 0.02, 0.06]} castShadow><boxGeometry args={[0.9, 0.04, 0.6]} /><meshStandardMaterial color="#3a4351" metalness={0.4} roughness={0.5} /></mesh>
       <mesh position={[0, 0.045, 0.08]}><boxGeometry args={[0.8, 0.008, 0.46]} /><meshStandardMaterial color="#0b1018" /></mesh>
-      <group position={[0, 0.02, -0.24]} rotation={[-Math.PI * 0.42, 0, 0]}>
+      {/* Screen hinges here; rotation.x=0 stands it fully upright, so a small negative angle reads as an
+          ordinary "open at ~90°" laptop instead of reclined almost flat. */}
+      <group position={[0, 0.02, -0.24]} rotation={[-Math.PI * 0.08, 0, 0]}>
         <mesh position={[0, 0.3, 0]} castShadow><boxGeometry args={[0.9, 0.6, 0.03]} /><meshStandardMaterial color="#2a3340" /></mesh>
         <mesh position={[0, 0.3, 0.02]}><planeGeometry args={[0.8, 0.5]} /><meshStandardMaterial color="#255a72" emissive="#255a72" emissiveIntensity={1.0} /></mesh>
       </group>
@@ -570,12 +572,21 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[0, 0.3, 0]}><boxGeometry args={[0.27, 0.09, 0.15]} /><meshStandardMaterial color="#b73545" /></mesh>
     </group>;
 
-    case 'vodka': return <Bottle color="#8fb9c9" height={1.05} />;
-    case 'pillBottle': return <group position={[0, DESK_Y, 0]}>
+    // Vodka, pills and the energy drink are all hand props (picked up and drunk/taken) — sized to look
+    // like something that actually fits in a hand next to the character, not a life-size prop.
+    case 'vodka': return <Bottle color="#8fb9c9" height={0.55} />;
+    case 'pillBottle': return <group position={[0, DESK_Y, 0]} scale={0.62}>
       <mesh position={[0, 0.12, 0]} castShadow><cylinderGeometry args={[0.08, 0.08, 0.24, 14]} /><meshStandardMaterial color="#d9b64d" /></mesh>
       <mesh position={[0, 0.255, 0]}><cylinderGeometry args={[0.09, 0.09, 0.045, 14]} /><meshStandardMaterial color="#e7e1d5" /></mesh>
     </group>;
-    case 'redBull': return <mesh position={[0, DESK_Y + 0.24, 0]} castShadow><cylinderGeometry args={[0.13, 0.13, 0.46, 16]} /><meshStandardMaterial color="#d05e55" metalness={0.3} roughness={0.4} /></mesh>;
+    // A generic energy-drink can — silvery-aluminium body with a red/yellow band, no logo or wordmark —
+    // rather than the previous flat single-colour cylinder.
+    case 'redBull': return <group position={[0, DESK_Y, 0]} scale={0.68}>
+      <mesh position={[0, 0.24, 0]} castShadow><cylinderGeometry args={[0.13, 0.13, 0.46, 16]} /><meshStandardMaterial color="#cfe0ea" metalness={0.65} roughness={0.22} /></mesh>
+      <mesh position={[0, 0.24, 0]}><cylinderGeometry args={[0.132, 0.132, 0.14, 16]} /><meshStandardMaterial color="#d6362f" metalness={0.25} roughness={0.4} /></mesh>
+      <mesh position={[0, 0.155, 0]}><cylinderGeometry args={[0.132, 0.132, 0.03, 16]} /><meshStandardMaterial color="#f0c33c" metalness={0.25} roughness={0.4} /></mesh>
+      <mesh position={[0, 0.47, 0]}><cylinderGeometry args={[0.1, 0.1, 0.015, 16]} /><meshStandardMaterial color="#b9c4cc" metalness={0.8} roughness={0.2} /></mesh>
+    </group>;
 
     case 'window': return <WindowUnit />;
     // Second window on the bed side; narrower, and it reads the same day-cycle and weather state.
@@ -639,7 +650,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <mesh position={[0.36, 0.12, 0.25]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.22, 0.025, 8, 20, Math.PI]} /><meshStandardMaterial color="#161a24" /></mesh>
     </group>;
 
-    case 'switch': return <group position={[0, 0.06, 0]} rotation={[-Math.PI / 2 + 0.2, 0, 0]}>
+    // Rests on the sofa's seat cushion (seat top ≈ 1.0 world, see Sofa()) rather than the floor.
+    case 'switch': return <group position={[0, 1.06, 0]} rotation={[-Math.PI / 2 + 0.2, 0, 0]}>
       <mesh castShadow><boxGeometry args={[0.7, 0.42, 0.04]} /><meshStandardMaterial color="#20242c" /></mesh>
       <mesh position={[0, 0, 0.03]}><planeGeometry args={[0.5, 0.34]} /><meshStandardMaterial color="#2b6f86" emissive="#2b6f86" emissiveIntensity={0.9} /></mesh>
       <mesh position={[-0.3, 0, 0]}><boxGeometry args={[0.1, 0.42, 0.05]} /><meshStandardMaterial color="#d05e55" /></mesh>

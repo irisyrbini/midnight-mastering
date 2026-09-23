@@ -16,12 +16,12 @@ export function RestOverlay() {
   const [stage, setStage] = useState(0);
   useEffect(() => {
     if (!sleeping) { setStage(0); return; }
-    const timers = [700, 3400, 6600].map((ms, i) => window.setTimeout(() => setStage(i + 1), ms));
+    const timers = [250, 1100, 2000].map((ms, i) => window.setTimeout(() => setStage(i + 1), ms));
     return () => timers.forEach(window.clearTimeout);
   }, [sleeping]);
   if (!sleeping) return null;
 
-  const fade = (on: boolean) => ({ opacity: on ? 1 : 0, transform: `translateY(${on ? 0 : 8}px)`, transition: 'opacity 1800ms ease-out, transform 1800ms ease-out' });
+  const fade = (on: boolean) => ({ opacity: on ? 1 : 0, transform: `translateY(${on ? 0 : 8}px)`, transition: 'opacity 900ms ease-out, transform 900ms ease-out' });
   return <section className="absolute inset-0 z-40 grid place-items-center p-6 text-center">
     <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(120% 90% at 50% 45%, rgba(12,14,26,0.35) 0%, rgba(10,12,22,0.66) 70%, rgba(8,10,18,0.82) 100%)' }} />
     <div className="relative max-w-[42ch]">

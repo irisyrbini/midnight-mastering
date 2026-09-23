@@ -51,10 +51,17 @@ export function GameShell() {
         if (state.prompt) { state.dismissPrompt(); return; }
         if (state.activeLocationId === 'elevator') { if (state.elevatorTo === null) state.exitElevator(); return; }
         // Enter is the primary exit on each non-studio floor: the lobby and rooftop step into the
-        // elevator; the hallway goes back into the studio (its elevator has its own button). Keeping
-        // Enter bound means no exit can be stranded behind an off-screen prop or an overlay.
+        // elevator; the hallway goes back into the studio EXCEPT when standing at the hallway's own
+        // elevator panel (~game-coord 873,215), where Enter should call the elevator instead — the panel
+        // itself is a mouse-only click target with no `selectedObjectId` tie-in, so Enter previously had
+        // no way to reach it at all and always fell through to "return to studio". Keeping Enter bound
+        // means no exit can be stranded behind an off-screen prop or an overlay.
         if (state.activeLocationId === 'apartment-lobby' || state.activeLocationId === 'apartment-rooftop') { state.enterElevator(); return; }
-        if (state.activeLocationId === 'apartment-hallway' || state.activeLocationId === 'apartment-corridor') { state.returnToStudio(); return; }
+        if (state.activeLocationId === 'apartment-hallway' || state.activeLocationId === 'apartment-corridor') {
+          const nearHallwayElevator = Math.hypot(state.playerPosition.x - 873, state.playerPosition.y - 215) < 160;
+          if (nearHallwayElevator) state.enterElevator(); else state.returnToStudio();
+          return;
+        }
         // Enter toggles: if an interaction overlay is open, a second Enter closes it; otherwise interact.
         if (state.activeVideoId) { state.closeVideo(); return; }
         if (state.friendMenuOpen) { state.closeFriendMenu(); return; }

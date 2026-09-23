@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/game-store';
 import { DAW_STEP_COUNT, DAW_STEP_MS, DAW_TRACK_COUNT, GROUP_COLOR, SOUND_BYTES, soundByteById } from '@/data/sound-bytes';
-import { stopAllSoundByteSamples } from '@/game/audio/sound-byte-samples';
+import { setSoundByteLiveVolume, stopAllSoundByteSamples } from '@/game/audio/sound-byte-samples';
 
 const REQUIRED_INSTRUMENTS = ['acousticGuitar', 'electricGuitar', 'portasound', 'sk5', 'modularSynths', 'mic', 'lyricNotebook'];
 const DRAG_THRESHOLD = 5; // px of pointer movement before a press becomes a drag rather than a click
@@ -69,6 +69,15 @@ export function DawPanel() {
   for (const [pieceId, cell] of Object.entries(placedClips)) {
     if (grid[cell.track]) grid[cell.track][cell.step] = pieceId;
   }
+
+  // Mute/volume take effect immediately on whatever is already sounding, not just on the next time the
+  // step loop retriggers that clip — otherwise a track already playing its ~20s stem would keep sounding
+  // at the old level for up to a full bar after the mute/slider was touched.
+  useEffect(() => {
+    for (const [pieceId, cell] of Object.entries(placedClips)) {
+      setSoundByteLiveVolume(pieceId, trackMuted[cell.track] ? 0 : trackVolume[cell.track]);
+    }
+  }, [trackMuted, trackVolume, placedClips]);
 
   const playColumn = useCallback((col: number) => {
     for (let track = 0; track < DAW_TRACK_COUNT; track += 1) {
@@ -219,9 +228,10 @@ export function DawPanel() {
             {isPlaying ? <span className="h-2.5 w-2.5 bg-current" /> : <span className="ml-0.5 h-0 w-0 border-y-[6px] border-l-[9px] border-y-transparent border-l-current" />}
           </button>
           <p className="font-mono text-xs text-paper/55">Bar 1 · step {step + 1}/{DAW_STEP_COUNT}</p>
-          <button onClick={finishMix} disabled={placedCount === 0} className="ml-2 rounded-md border border-[#d8c79c]/50 bg-[#d8c79c]/10 px-3 py-1 text-xs font-medium text-[#e9dcc0] transition-colors hover:bg-[#d8c79c]/20 disabled:cursor-not-allowed disabled:opacity-30">Mix / Finish</button>
+          <button onClick={finishMix} disabled={placedCount === 0} title="Plays your current arrangement from the top, as the finished mix" className="ml-2 rounded-md border border-[#d8c79c]/50 bg-[#d8c79c]/10 px-3 py-1 text-xs font-medium text-[#e9dcc0] transition-colors hover:bg-[#d8c79c]/20 disabled:cursor-not-allowed disabled:opacity-30">Mix / Finish</button>
           <p className="ml-auto text-xs text-paper/50">{placedCount} clip{placedCount === 1 ? '' : 's'} arranged</p>
         </div>
+        <p className="mt-1 text-[10px] leading-snug text-paper/35">Mix / Finish plays your arranged clips from the top, as the finished song.</p>
 
         {/* Track lanes + step grid. 20 lanes no longer fit one-per-fraction in the available height, so the
             lanes get a fixed row height and the whole block scrolls vertically; the step ruler stays pinned

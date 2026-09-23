@@ -21,7 +21,7 @@ function audioCtx(): AudioContext | null {
 
 const buffers = new Map<string, AudioBuffer>();
 const pending = new Map<string, Promise<void>>();
-const playing = new Map<string, AudioBufferSourceNode>();
+const playing = new Map<string, { src: AudioBufferSourceNode; gain: GainNode }>();
 
 function load(id: string, url: string): Promise<void> {
   const existing = pending.get(id);
@@ -52,7 +52,7 @@ export function playSoundByteSample(id: string, volume = 1) {
   const ac = audioCtx();
   const buffer = buffers.get(id);
   if (!ac || !buffer) return;
-  playing.get(id)?.stop();
+  playing.get(id)?.src.stop();
   if (volume <= 0) { playing.delete(id); return; }
   const src = ac.createBufferSource();
   src.buffer = buffer;
@@ -60,14 +60,26 @@ export function playSoundByteSample(id: string, volume = 1) {
   gain.gain.value = volume;
   src.connect(gain);
   gain.connect(ac.destination);
-  src.onended = () => { if (playing.get(id) === src) playing.delete(id); };
+  src.onended = () => { if (playing.get(id)?.src === src) playing.delete(id); };
   src.start();
-  playing.set(id, src);
+  playing.set(id, { src, gain });
+}
+
+/** Live-update a currently-sounding byte's volume without retriggering it — used so toggling a track's
+ *  mute or dragging its volume slider takes effect immediately on whatever is already playing, instead of
+ *  waiting for the next time the DAW's step loop retriggers that clip. A short `setTargetAtTime` ramp
+ *  avoids an audible click; a byte that isn't currently playing is a silent no-op (the new volume still
+ *  applies normally next time playSoundByteSample triggers it). */
+export function setSoundByteLiveVolume(id: string, volume: number) {
+  const ac = audioCtx();
+  const entry = playing.get(id);
+  if (!ac || !entry) return;
+  entry.gain.gain.setTargetAtTime(Math.max(0, Math.min(1, volume)), ac.currentTime, 0.015);
 }
 
 /** Stop every currently-sounding sample immediately — used when the DAW transport stops so nothing keeps
  *  ringing on into silence after Stop is pressed or the panel closes mid-playback. */
 export function stopAllSoundByteSamples() {
-  for (const src of playing.values()) { try { src.stop(); } catch { /* already stopped */ } }
+  for (const { src } of playing.values()) { try { src.stop(); } catch { /* already stopped */ } }
   playing.clear();
 }

@@ -1424,6 +1424,7 @@ const GROUND_SHADOW_RADIUS: Record<string, number> = {
 const FURNITURE_SCALE = 1.4;
 const CHAIR_SCALE = 1.7; // chairs sized to the (larger) characters so the seat meets the body
 const GUITAR_SCALE = 1.05; // floor guitars stay readable without dominating the walkway
+const SWITCH_SCALE = 0.95; // handheld console, sized down from the standard furniture multiplier
 
 function RoomObject({ object }: { object: StudioObject }) {
   const selected = useGameStore((state) => state.selectedObjectId === object.id);
@@ -1435,7 +1436,12 @@ function RoomObject({ object }: { object: StudioObject }) {
   // Desk gear is modelled with its base at DESK_Y (the tabletop's centre); DESKTOP_LIFT raises it the
   // half-thickness up to the true tabletop surface so props rest ON the desk rather than sunk into it.
   const deskLift = DESKTOP_IDS.has(object.id) ? DESKTOP_LIFT : 0;
-  const baseY = DESKTOP_IDS.has(object.id) ? DESK_Y + DESKTOP_LIFT : TABLE_IDS.has(object.id) ? TABLE2_Y : 0; // gear sits on its table surface
+  // Gear sits on its table surface; the desk/table objects themselves are also directly selectable (they
+  // have their own interaction), so their own ring needs the same surface height — otherwise selecting the
+  // table (rather than the specific instrument on it, which proximity-selection can easily prefer) drew the
+  // ring at floor level, sunk out of sight under the tabletop and reading as "no selection ring at all".
+  const baseY = DESKTOP_IDS.has(object.id) || object.id === 'musicDesk' ? DESK_Y + DESKTOP_LIFT
+    : TABLE_IDS.has(object.id) || object.id === 'instrumentTable' ? TABLE2_Y : 0;
   const ring = Math.max(0.5, Math.max(object.width, object.height) / 150);
   // Wall-mounted models are anchored to the room shell's wall plane rather than to their raw layout
   // position, so they stay flush no matter how the room is sized. The offset is applied along the
@@ -1473,9 +1479,10 @@ function RoomObject({ object }: { object: StudioObject }) {
   const worktop = object.id === 'musicDesk' || object.id === 'instrumentTable' || DESKTOP_IDS.has(object.id) || TABLE_IDS.has(object.id);
   const isChair = object.id === 'chair' || object.id === 'friendChair';
   const isFloorGuitar = object.id === 'acousticGuitar' || object.id === 'electricGuitar';
-  const uniform = isChair ? CHAIR_SCALE : isFloorGuitar ? GUITAR_SCALE : FURNITURE_SCALE;
+  const isSwitch = object.id === 'switch';
+  const uniform = isChair ? CHAIR_SCALE : isFloorGuitar ? GUITAR_SCALE : isSwitch ? SWITCH_SCALE : FURNITURE_SCALE;
   const furnScale: [number, number, number] = !scaled ? [1, 1, 1] : worktop ? [FURNITURE_SCALE, 1, FURNITURE_SCALE] : [uniform, uniform, uniform];
-  const shadowMul = isFloorGuitar ? GUITAR_SCALE : scaled ? FURNITURE_SCALE : 1;
+  const shadowMul = isFloorGuitar ? GUITAR_SCALE : isSwitch ? SWITCH_SCALE : scaled ? FURNITURE_SCALE : 1;
   return <group position={[x + wallXOffset, 0, z + wallWorldZOffset]} rotation={[0, object.rotationY ?? 0, 0]} onClick={onSelect}>
     {shadowTex && <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[shadowR * shadowMul, shadowR * shadowMul, 1]}>
       <planeGeometry args={[2, 2]} /><meshBasicMaterial map={shadowTex} transparent depthWrite={false} opacity={0.85} />
