@@ -69,8 +69,7 @@ type GameState = GameSnapshot & {
   visitorLeaveAt: number;
   visitorTarget: Point;
   visitorPauseUntil: number;
-  visitorStuckMs: number;        // ms Path has spent making no headway toward its target
-  visitorDetour: Point | null;   // a temporary waypoint to skirt an obstacle (any phase, incl. leaving)
+  visitorNav: NpcNav;             // pathfinding + stuck-recovery state (see followPath)
   playingUkulele: boolean;
   ukuleleUntil: number;
   weather: WeatherKind;
@@ -90,8 +89,7 @@ type GameState = GameSnapshot & {
   /** Where NPC 2 is currently strolling to, and when its current pause ends. */
   npc2Target: Point;
   npc2PauseUntil: number;
-  npc2StuckMs: number;         // ms Tom has spent making no headway (→ detour, same as Path)
-  npc2Detour: Point | null;    // temporary waypoint to skirt whatever Tom is snagged on
+  npc2Nav: NpcNav;              // pathfinding + stuck-recovery state (see followPath)
   /** Seat id NPC2 is currently heading to / sitting on (bean bag), or null while wandering; `npc2Sitting`
    *  is true once it has actually arrived and sat; `npc2Pose` is a random seated-pose seed. */
   npc2Seat: string | null;
@@ -103,8 +101,7 @@ type GameState = GameSnapshot & {
   npc3Pos: Point;
   npc3Target: Point;
   npc3PauseUntil: number;
-  npc3StuckMs: number;         // ms Yebin has spent making no headway (→ detour, same as Path/Tom)
-  npc3Detour: Point | null;    // temporary waypoint to skirt whatever Yebin is snagged on
+  npc3Nav: NpcNav;              // pathfinding + stuck-recovery state (see followPath)
   npc3LeaveAt: number;
   npc3Seat: string | null;
   npc3Sitting: boolean;
@@ -197,6 +194,14 @@ const WALK_SPEED = 520; // logical px per real second — a brisk, purposeful wa
 export const RUN_MULTIPLIER = 2.3; // Shift sprint, shared with the keyboard handler
 const SELECT_RADIUS = 105;
 type Point = { x: number; y: number };
+/** Per-NPC pathfinding + stuck-recovery state (see `followPath`). `path` is the remaining A* waypoints
+ *  (world space, last entry is the true destination); `pathFor` is the target it was computed for, so a
+ *  changed target triggers a replan. `watchPos`/`watchMs` track real net displacement over time (not just
+ *  this tick's step) — the actual stuck signal, since a jittering NPC can move a full step every tick
+ *  while covering no ground at all. `watchLevel` escalates the recovery: 1 = replan, 2 = ask for a fresh
+ *  target, 3 = teleport to the nearest open floor point (never permanently stuck). */
+type NpcNav = { path: Point[] | null; pathFor: Point | null; watchPos: Point; watchMs: number; watchLevel: number };
+const initNav = (pos: Point): NpcNav => ({ path: null, pathFor: null, watchPos: pos, watchMs: 0, watchLevel: 0 });
 
 /** Walkable floor. Widened so the producer can roam the open front and walk behind the desk to the window. */
 // Match the actual inner faces of the 14×10 room shell. The previous 70..1240 / 150..780 bounds were
@@ -313,20 +318,145 @@ const pickVisitorSpot = (from: Point): Point => {
   return spots.length ? spots[Math.floor(Math.random() * spots.length)] : SYNTH_PERFORMANCE_ANCHOR;
 };
 
-/** A short sidestep waypoint to escape a spot where the direct route to `target` is blocked. Samples a ring
- *  of open floor points around `from` and keeps the one that best advances toward `target` (so the detour
- *  actually skirts the obstacle rather than wandering off). Falls back to any open point, then to `from`. */
-const pickDetour = (from: Point, target: Point, radius = 130): Point => {
-  let best: Point | null = null;
-  let bestScore = Infinity;
-  for (let i = 0; i < 16; i += 1) {
-    const angle = (i / 16) * Math.PI * 2;
-    const p = clampToRoom({ x: from.x + Math.cos(angle) * radius, y: from.y + Math.sin(angle) * radius });
-    if (isBlocked(p, 22)) continue;
-    const score = Math.hypot(p.x - target.x, p.y - target.y); // prefer the open point closest to the goal
-    if (score < bestScore) { bestScore = score; best = p; }
+// ── Lightweight grid navmesh + A*. Reactive "detour when blocked" alone can't escape concave furniture
+//    pockets (e.g. beside the desk/chairs) — it has no memory, so it can ping-pong between the same two
+//    points forever. A static grid over the room's real colliders, pathed with A* once per target change,
+//    fixes the whole class of "permanently stuck" bugs instead of patching individual cases. Furniture
+//    never moves at runtime, so the grid is built once at module load. ──
+const NAV_CELL = 20;
+const NAV_MIN_X = -110, NAV_MAX_X = 1335, NAV_MIN_Y = 25, NAV_MAX_Y = 995; // matches clampToRoom's bounds
+const NAV_COLS = Math.ceil((NAV_MAX_X - NAV_MIN_X) / NAV_CELL);
+const NAV_ROWS = Math.ceil((NAV_MAX_Y - NAV_MIN_Y) / NAV_CELL);
+const NAV_RADIUS = 22; // matches the radius NPCs actually steer with (npcSafeStep's default)
+const navCellCenter = (cx: number, cy: number): Point => ({ x: NAV_MIN_X + (cx + 0.5) * NAV_CELL, y: NAV_MIN_Y + (cy + 0.5) * NAV_CELL });
+const navToCell = (p: Point) => ({
+  cx: Math.min(NAV_COLS - 1, Math.max(0, Math.floor((p.x - NAV_MIN_X) / NAV_CELL))),
+  cy: Math.min(NAV_ROWS - 1, Math.max(0, Math.floor((p.y - NAV_MIN_Y) / NAV_CELL))),
+});
+const NAV_WALKABLE: Uint8Array = (() => {
+  const grid = new Uint8Array(NAV_COLS * NAV_ROWS);
+  for (let cy = 0; cy < NAV_ROWS; cy += 1) {
+    for (let cx = 0; cx < NAV_COLS; cx += 1) grid[cy * NAV_COLS + cx] = isBlocked(navCellCenter(cx, cy), NAV_RADIUS) ? 0 : 1;
   }
-  return best ?? from;
+  return grid;
+})();
+const navWalkable = (cx: number, cy: number) => cx >= 0 && cy >= 0 && cx < NAV_COLS && cy < NAV_ROWS && NAV_WALKABLE[cy * NAV_COLS + cx] === 1;
+/** The nearest walkable cell to `p` (itself, if already open) — outward ring search, so a position saved
+ *  inside a collider or a target that clamped into one always resolves to real open ground nearby. */
+const navNearestWalkableCell = (p: Point): { cx: number; cy: number } => {
+  const { cx, cy } = navToCell(p);
+  if (navWalkable(cx, cy)) return { cx, cy };
+  for (let r = 1; r < 16; r += 1) {
+    for (let dy = -r; dy <= r; dy += 1) {
+      for (let dx = -r; dx <= r; dx += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        if (navWalkable(cx + dx, cy + dy)) return { cx: cx + dx, cy: cy + dy };
+      }
+    }
+  }
+  return { cx, cy };
+};
+const navNearestWalkablePoint = (p: Point): Point => { const c = navNearestWalkableCell(p); return navCellCenter(c.cx, c.cy); };
+/** True if the straight segment a→b never clips a collider — lets path smoothing skip unnecessary waypoints. */
+const hasLineOfSight = (a: Point, b: Point): boolean => {
+  const dist = Math.hypot(b.x - a.x, b.y - a.y);
+  const steps = Math.max(1, Math.ceil(dist / (NAV_CELL * 0.5)));
+  for (let i = 1; i < steps; i += 1) {
+    const t = i / steps;
+    if (isBlocked({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, NAV_RADIUS)) return false;
+  }
+  return true;
+};
+/** A* over the static furniture grid from `start` to `target`. Returns a line-of-sight-smoothed list of
+ *  waypoints (the last one is always the real `target`, not just its cell centre), or `null` if no route
+ *  exists at all (shouldn't happen — the room has no fully sealed pockets — but callers must handle it). */
+const findPath = (start: Point, target: Point): Point[] | null => {
+  const s = navNearestWalkableCell(start), g = navNearestWalkableCell(target);
+  if (s.cx === g.cx && s.cy === g.cy) return [target];
+  const startIdx = s.cy * NAV_COLS + s.cx, goalIdx = g.cy * NAV_COLS + g.cx;
+  const gScore = new Map<number, number>([[startIdx, 0]]);
+  const fScore = new Map<number, number>([[startIdx, Math.hypot(s.cx - g.cx, s.cy - g.cy)]]);
+  const cameFrom = new Map<number, number>();
+  const open = new Set<number>([startIdx]);
+  const neighbors = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]] as const;
+  let guard = 0;
+  while (open.size && guard < 4000) {
+    guard += 1;
+    let current = -1, bestF = Infinity;
+    for (const idx of open) { const f = fScore.get(idx) ?? Infinity; if (f < bestF) { bestF = f; current = idx; } }
+    if (current === goalIdx) break;
+    open.delete(current);
+    const cx = current % NAV_COLS, cy = (current / NAV_COLS) | 0;
+    for (const [dx, dy, cost] of neighbors) {
+      const nx = cx + dx, ny = cy + dy;
+      if (!navWalkable(nx, ny)) continue;
+      if (dx !== 0 && dy !== 0 && (!navWalkable(cx + dx, cy) || !navWalkable(cx, cy + dy))) continue; // no cutting corners
+      const nIdx = ny * NAV_COLS + nx;
+      const tentative = (gScore.get(current) ?? Infinity) + cost;
+      if (tentative < (gScore.get(nIdx) ?? Infinity)) {
+        cameFrom.set(nIdx, current);
+        gScore.set(nIdx, tentative);
+        fScore.set(nIdx, tentative + Math.hypot(nx - g.cx, ny - g.cy));
+        open.add(nIdx);
+      }
+    }
+  }
+  if (startIdx !== goalIdx && !cameFrom.has(goalIdx)) return null;
+  const cells: number[] = [goalIdx];
+  let cur = goalIdx;
+  while (cur !== startIdx) { const prev = cameFrom.get(cur); if (prev === undefined) break; cells.push(prev); cur = prev; }
+  cells.reverse();
+  const raw = cells.map((idx) => navCellCenter(idx % NAV_COLS, (idx / NAV_COLS) | 0));
+  raw.push(target);
+  const smoothed: Point[] = [raw[0]];
+  let i = 0;
+  while (i < raw.length - 1) {
+    let j = raw.length - 1;
+    while (j > i + 1 && !hasLineOfSight(raw[i], raw[j])) j -= 1;
+    smoothed.push(raw[j]);
+    i = j;
+  }
+  return smoothed.slice(1); // drop the start point — callers only need the waypoints ahead
+};
+/** A random open-floor point inside the given box, resampled until it's actually walkable. Unvalidated
+ *  wander targets used to land inside furniture ~20-30% of the time — an NPC heading for a point inside a
+ *  collider can never register as "arrived", so it would grind at the edge forever no matter how good the
+ *  steering was. */
+const randomFloorPoint = (xMin: number, xMax: number, yMin: number, yMax: number): Point => {
+  for (let i = 0; i < 20; i += 1) {
+    const p = clampToRoom({ x: xMin + Math.random() * (xMax - xMin), y: yMin + Math.random() * (yMax - yMin) });
+    if (!isBlocked(p, NAV_RADIUS)) return p;
+  }
+  return navNearestWalkablePoint({ x: (xMin + xMax) / 2, y: (yMin + yMax) / 2 });
+};
+/** Advance an NPC toward `target` using the A* path above instead of pure local steering — `npcSafeStep`
+ *  still drives each tick's actual move along the current waypoint, so NPC-NPC separation and short local
+ *  dodges keep working exactly as before, but the waypoints themselves now already route around concave
+ *  pockets. A net-displacement watchdog — real ground covered over the last 4s, not this tick's step —
+ *  catches whatever the path still can't (an NPC-NPC deadlock, a moving avoid-point): level 1 replans,
+ *  level 2 asks `giveUp` for a fresh target (when one is possible), level 3 teleports to the nearest open
+ *  floor point so it can never be truly, permanently stuck. */
+const followPath = (nav: NpcNav, pos: Point, target: Point, step: number, deltaMs: number, avoid: Point[], turnBias: 1 | -1, giveUp: () => Point): { pos: Point; nav: NpcNav; retargeted: Point | null } => {
+  let path = nav.path, pathFor = nav.pathFor;
+  if (!pathFor || pathFor.x !== target.x || pathFor.y !== target.y) { path = findPath(pos, target); pathFor = target; }
+  const waypoint = path && path.length ? path[0] : target;
+  const nextPos = npcSafeStep(pos, waypoint, step, NAV_RADIUS, avoid, turnBias);
+  if (path && path.length && Math.hypot(nextPos.x - waypoint.x, nextPos.y - waypoint.y) <= 30) path = path.slice(1);
+  const moved = Math.hypot(nextPos.x - nav.watchPos.x, nextPos.y - nav.watchPos.y);
+  if (moved > 40) return { pos: nextPos, nav: { path, pathFor, watchPos: nextPos, watchMs: 0, watchLevel: 0 }, retargeted: null };
+  const watchMs = nav.watchMs + deltaMs;
+  if (watchMs < 4000) return { pos: nextPos, nav: { path, pathFor, watchPos: nav.watchPos, watchMs, watchLevel: nav.watchLevel }, retargeted: null };
+  const level = nav.watchLevel + 1;
+  if (level >= 3) {
+    const escape = navNearestWalkablePoint(nextPos);
+    return { pos: escape, nav: { path: null, pathFor: null, watchPos: escape, watchMs: 0, watchLevel: 0 }, retargeted: null };
+  }
+  let retargeted: Point | null = null;
+  let effectiveTarget = target;
+  if (level === 2) { effectiveTarget = giveUp(); retargeted = effectiveTarget; }
+  path = findPath(nextPos, effectiveTarget);
+  pathFor = effectiveTarget;
+  return { pos: nextPos, nav: { path, pathFor, watchPos: nextPos, watchMs: 0, watchLevel: level }, retargeted };
 };
 
 /** Where the producer sits / lies when using the chair / bed. */
@@ -547,8 +677,7 @@ const initialSession = () => ({
   // NPC1 wander: where Path is currently headed while idling, and when its current pause ends.
   visitorTarget: { ...SYNTH_PERFORMANCE_ANCHOR } as Point,
   visitorPauseUntil: 0,
-  visitorStuckMs: 0,
-  visitorDetour: null as Point | null,
+  visitorNav: initNav(SYNTH_PERFORMANCE_ANCHOR),
   // The producer is holding + playing the ukulele until this elapsedMs (one-shot performance).
   playingUkulele: false,
   ukuleleUntil: 0,
@@ -567,8 +696,7 @@ const initialSession = () => ({
   npc2LeaveAt: 0,
   npc2Target: { x: 880, y: 560 } as Point,
   npc2PauseUntil: 0,
-  npc2StuckMs: 0,
-  npc2Detour: null as Point | null,
+  npc2Nav: initNav({ x: 880, y: 560 }),
   npc2Seat: null as string | null,
   npc2Sitting: false,
   npc2Pose: 0,
@@ -577,8 +705,7 @@ const initialSession = () => ({
   npc3Pos: { x: 256, y: 768 } as Point,
   npc3Target: { x: 256, y: 768 } as Point,
   npc3PauseUntil: 0,
-  npc3StuckMs: 0,
-  npc3Detour: null as Point | null,
+  npc3Nav: initNav({ x: 256, y: 768 }),
   npc3LeaveAt: 0,
   npc3Seat: null as string | null,
   npc3Sitting: false,
@@ -718,12 +845,9 @@ export const useGameStore = create<GameState>((set) => ({
       playingUkulele: false,
       ukuleleUntil: 0,
       phoneRinging: false,
-      visitorDetour: null,
-      visitorStuckMs: 0,
-      npc2Detour: null,
-      npc2StuckMs: 0,
-      npc3Detour: null,
-      npc3StuckMs: 0,
+      visitorNav: initNav(state.visitorPos),
+      npc2Nav: initNav(state.npc2Pos),
+      npc3Nav: initNav(state.npc3Pos),
       // Collected fragments + completion persist (they're the whole point); only the transient pickup cue
       // and the open assembly panel are reset so a load never re-fires a toast or reopens the view.
       sheetPieceCue: { id: '', n: 0 },
@@ -739,7 +863,7 @@ export const useGameStore = create<GameState>((set) => ({
     const npc3Pos = cleaned.npc3Pos ?? state.npc3Pos;
     if (cleaned.npc2Active && !cleaned.npc2Seat && isBlocked(npc2Pos, 18)) { cleaned.npc2Pos = { x: 430, y: 650 }; cleaned.npc2Target = { x: 520, y: 650 }; }
     if (cleaned.npc3Active && !cleaned.npc3Seat && isBlocked(npc3Pos, 18)) { cleaned.npc3Pos = { x: 900, y: 620 }; cleaned.npc3Target = { x: 980, y: 620 }; }
-    if (cleaned.npc2Active && cleaned.npc3Active && Math.hypot(npc2Pos.x - npc3Pos.x, npc2Pos.y - npc3Pos.y) < 48) {
+    if (cleaned.npc2Active && cleaned.npc3Active && Math.hypot(npc2Pos.x - npc3Pos.x, npc2Pos.y - npc3Pos.y) < 40) {
       cleaned.npc2Pos = { x: 430, y: 650 }; cleaned.npc2Target = { x: 520, y: 650 }; cleaned.npc2Seat = null; cleaned.npc2Sitting = false;
       cleaned.npc3Pos = { x: 900, y: 620 }; cleaned.npc3Target = { x: 980, y: 620 }; cleaned.npc3Seat = null; cleaned.npc3Sitting = false;
     }
@@ -858,7 +982,8 @@ export const useGameStore = create<GameState>((set) => ({
     const positions: Record<FriendActivity, { player: Point; friend: Point }> = {
       tune: { player: SIT_POSITION, friend: centerOf('friendChair', { x: 750, y: 480 }) },
       vodka: { player: SIT_POSITION, friend: centerOf('friendChair', { x: 750, y: 480 }) },
-      'video-game': { player: SIT_POSITION, friend: centerOf('friendChair', { x: 750, y: 480 }) },
+      // Video games happen on the sofa, not at the desk — two adjacent seats from the shared NPC_SEATS rig.
+      'video-game': { player: seatPos('sofaL'), friend: seatPos('sofaR') },
     };
     const pose = positions[kind];
     return { needs: applyNeedChange(state.needs, result.needs), emotionalGraph, crystal: crystalState(emotionalGraph), collaborationMinutes: result.collaboration ?? state.collaborationMinutes, friendMenuOpen: false, activeVideoId: kind === 'video-game' ? 'switch' : undefined, friendActivity: kind, friendActivityMinutes: 90, playerPosition: pose.player, visitorPos: pose.friend, seated: true, workingOnMusic: kind === 'tune', dawOpen: false };
@@ -1148,28 +1273,14 @@ export const useGameStore = create<GameState>((set) => ({
     }
     // Treat the other guests as soft obstacles so Path and Tom don't pin each other in a doorway.
     const others = [state.npc2Active ? state.npc2Pos : null, state.npc3Active ? state.npc3Pos : null].filter(Boolean) as Point[];
-    if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true, visitorDetour: null, visitorStuckMs: 0 }; // opens the door and steps out
-    // When a detour waypoint is active, steer to it first (it skirts whatever Path was stuck on), then resume.
-    const moveTarget = state.visitorDetour ?? target;
-    const visitorPos = npcSafeStep(state.visitorPos, moveTarget, step, 22, others, -1);
-    const moved = Math.hypot(visitorPos.x - state.visitorPos.x, visitorPos.y - state.visitorPos.y);
-    const patch: Partial<GameState> = { visitorPos };
-    if (goingHome && dist <= 120) patch.entranceOpen = true; // open the door as they approach it
-    // Reached the detour waypoint → drop it and head for the real target again.
-    if (state.visitorDetour && Math.hypot(visitorPos.x - state.visitorDetour.x, visitorPos.y - state.visitorDetour.y) <= 40) {
-      patch.visitorDetour = null; patch.visitorStuckMs = 0;
-      return patch;
-    }
-    // Stuck detection: if Path grinds against something (no headway) for ~3s while still far from the
-    // target, pick a sidestep waypoint that skirts the obstacle. Works in every phase — wandering,
-    // heading to the player, or leaving — so it can never be permanently trapped.
-    if (dist > 44 && moved < step * 0.25) {
-      const stuck = state.visitorStuckMs + deltaMs;
-      if (stuck >= 3000) { patch.visitorDetour = pickDetour(state.visitorPos, target); patch.visitorStuckMs = 0; }
-      else patch.visitorStuckMs = stuck;
-    } else if (state.visitorStuckMs !== 0) {
-      patch.visitorStuckMs = 0;
-    }
+    if (goingHome && dist <= 46) return { visitorActive: false, entranceOpen: true, visitorNav: initNav(state.visitorPos) }; // opens the door and steps out
+    // Real A* pathfinding (not reactive dodging) so Path can't get trapped in a concave pocket; only the
+    // free wander has a real alternative target to fall back to if it still can't make headway.
+    const giveUp = goingHome || state.friendActivity ? () => target : () => pickVisitorSpot(state.visitorPos);
+    const result = followPath(state.visitorNav, state.visitorPos, target, step, deltaMs, others, -1, giveUp);
+    const patch: Partial<GameState> = { visitorPos: result.pos, visitorNav: result.nav };
+    if (goingHome && Math.hypot(ENTRANCE_POSITION.x - result.pos.x, ENTRANCE_POSITION.y - result.pos.y) <= 120) patch.entranceOpen = true; // open the door as they approach it
+    if (result.retargeted && !goingHome && !state.friendActivity) patch.visitorTarget = result.retargeted;
     return patch;
   }),
   /**
@@ -1182,7 +1293,7 @@ export const useGameStore = create<GameState>((set) => ({
     if (state.npc2Seat && !NPC_SEATS.some((seat) => seat.id === state.npc2Seat)) return { npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 400 };
     // Hard recovery: if guests have already overlapped or one was saved inside furniture, pull NPC2
     // to a known open floor point before normal steering resumes.
-    if ((state.npc3Active && Math.hypot(state.npc2Pos.x - state.npc3Pos.x, state.npc2Pos.y - state.npc3Pos.y) < 48) || (!state.npc2Seat && isBlocked(state.npc2Pos, 18))) {
+    if ((state.npc3Active && Math.hypot(state.npc2Pos.x - state.npc3Pos.x, state.npc2Pos.y - state.npc3Pos.y) < 40) || (!state.npc2Seat && isBlocked(state.npc2Pos, 18))) {
       return { npc2Pos: { x: 430, y: 650 }, npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 900, npc2Target: { x: 520, y: 650 } };
     }
     const step = 190 * (deltaMs / 1000); // an unhurried amble, slower than the producer's walk
@@ -1195,18 +1306,19 @@ export const useGameStore = create<GameState>((set) => ({
     // Leaving: head for the entrance and step out the same door it came in, opening it on the way.
     if (state.npc2Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc2Pos.x, ENTRANCE_POSITION.y - state.npc2Pos.y) || 1;
-      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, npc2Seat: null, npc2Sitting: false, entranceOpen: true, npc2Detour: null, npc2StuckMs: 0 };
-      return { npc2Pos: moveTo(ENTRANCE_POSITION), npc2Seat: null, npc2Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
+      if (dist <= 46) return { npc2Active: false, npc2Leaving: false, npc2Seat: null, npc2Sitting: false, entranceOpen: true, npc2Nav: initNav(state.npc2Pos) };
+      const result = followPath(state.npc2Nav, state.npc2Pos, ENTRANCE_POSITION, step, deltaMs, others, 1, () => ENTRANCE_POSITION);
+      return { npc2Pos: result.pos, npc2Nav: result.nav, npc2Seat: null, npc2Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
     }
     // Heading to / sitting on a sofa seat.
     if (state.npc2Seat) {
       const s = seatPos(state.npc2Seat);
       if (!state.npc2Sitting) {
         if (Math.hypot(s.x - state.npc2Pos.x, s.y - state.npc2Pos.y) > 26) return { npc2Pos: moveToSeat(s) };
-        return { npc2Sitting: true, npc2Pose: Math.floor(Math.random() * 3), npc2Pos: s, npc2PauseUntil: state.elapsedMs + 5000 + Math.random() * 8000, npc2Detour: null, npc2StuckMs: 0 };
+        return { npc2Sitting: true, npc2Pose: Math.floor(Math.random() * 3), npc2Pos: s, npc2PauseUntil: state.elapsedMs + 5000 + Math.random() * 8000, npc2Nav: initNav(s) };
       }
       if (state.elapsedMs < state.npc2PauseUntil) return state; // sitting
-      return { npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 1200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
+      return { npc2Seat: null, npc2Sitting: false, npc2PauseUntil: state.elapsedMs + 1200, npc2Target: randomFloorPoint(300, 1080, 380, 720) };
     }
     if (state.elapsedMs < state.npc2PauseUntil) return state; // standing still, taking the room in
     const dist = Math.hypot(state.npc2Target.x - state.npc2Pos.x, state.npc2Target.y - state.npc2Pos.y);
@@ -1214,27 +1326,19 @@ export const useGameStore = create<GameState>((set) => ({
       // Arrived — occasionally settle on an available sofa spot, else wander on.
       const freeSeat = pickFreeSeat([state.npc3Seat]);
       if (freeSeat && Math.random() < 0.4) return { npc2Seat: freeSeat };
-      return { npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200, npc2Target: clampToRoom({ x: 300 + Math.random() * 780, y: 380 + Math.random() * 340 }) };
+      return { npc2PauseUntil: state.elapsedMs + 1200 + Math.random() * 3200, npc2Target: randomFloorPoint(300, 1080, 380, 720) };
     }
-    // Steer to an active detour waypoint first (it skirts whatever Tom snagged on), then resume the target.
-    const npc2Pos = moveTo(state.npc2Detour ?? state.npc2Target);
-    const moved = Math.hypot(npc2Pos.x - state.npc2Pos.x, npc2Pos.y - state.npc2Pos.y);
-    // Reached the detour waypoint → drop it and head for the real target again.
-    if (state.npc2Detour && Math.hypot(npc2Pos.x - state.npc2Detour.x, npc2Pos.y - state.npc2Detour.y) <= 40) {
-      return { npc2Pos, npc2Detour: null, npc2StuckMs: 0 };
-    }
-    // Same recovery as Path: grinding with no headway for ~3s → sidestep waypoint around the obstacle.
-    if (dist > 30 && moved < step * 0.25) {
-      const stuck = state.npc2StuckMs + deltaMs;
-      if (stuck >= 3000) return { npc2Pos, npc2Detour: pickDetour(state.npc2Pos, state.npc2Target), npc2StuckMs: 0 };
-      return { npc2Pos, npc2StuckMs: stuck };
-    }
-    return state.npc2StuckMs !== 0 ? { npc2Pos, npc2StuckMs: 0 } : { npc2Pos };
+    // Real A* pathfinding (not reactive dodging) so Tom can't get trapped in a concave pocket; if it still
+    // can't make headway (e.g. boxed in by the other guests), fall back to a fresh wander target.
+    const result = followPath(state.npc2Nav, state.npc2Pos, state.npc2Target, step, deltaMs, others, 1, () => randomFloorPoint(300, 1080, 380, 720));
+    const patch: Partial<GameState> = { npc2Pos: result.pos, npc2Nav: result.nav };
+    if (result.retargeted) patch.npc2Target = result.retargeted;
+    return patch;
   }),
   stepNpc3: (deltaMs) => set((state) => {
     if (!state.npc3Active || state.phase !== 'playing') return state;
     if (state.npc3Seat && !NPC_SEATS.some((seat) => seat.id === state.npc3Seat)) return { npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 400 };
-    if ((state.npc2Active && Math.hypot(state.npc3Pos.x - state.npc2Pos.x, state.npc3Pos.y - state.npc2Pos.y) < 48) || (!state.npc3Seat && isBlocked(state.npc3Pos, 18))) {
+    if ((state.npc2Active && Math.hypot(state.npc3Pos.x - state.npc2Pos.x, state.npc3Pos.y - state.npc2Pos.y) < 40) || (!state.npc3Seat && isBlocked(state.npc3Pos, 18))) {
       return { npc3Pos: { x: 900, y: 620 }, npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 900, npc3Target: { x: 980, y: 620 } };
     }
     const step = 175 * (deltaMs / 1000);
@@ -1246,18 +1350,21 @@ export const useGameStore = create<GameState>((set) => ({
     };
     if (state.npc3Leaving) {
       const dist = Math.hypot(ENTRANCE_POSITION.x - state.npc3Pos.x, ENTRANCE_POSITION.y - state.npc3Pos.y) || 1;
-      if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true, npc3Detour: null, npc3StuckMs: 0 };
-      return { npc3Pos: moveTo(ENTRANCE_POSITION), npc3Seat: null, npc3Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
+      if (dist <= 46) return { npc3Active: false, npc3Leaving: false, npc3Seat: null, npc3Sitting: false, entranceOpen: true, npc3Nav: initNav(state.npc3Pos) };
+      const result = followPath(state.npc3Nav, state.npc3Pos, ENTRANCE_POSITION, step, deltaMs, others, -1, () => ENTRANCE_POSITION);
+      return { npc3Pos: result.pos, npc3Nav: result.nav, npc3Seat: null, npc3Sitting: false, entranceOpen: dist <= 140 ? true : state.entranceOpen };
     }
     // Heading to / sitting on a claimed sofa/bean-bag seat.
     if (state.npc3Seat) {
       const s = seatPos(state.npc3Seat);
       if (!state.npc3Sitting) {
         if (Math.hypot(s.x - state.npc3Pos.x, s.y - state.npc3Pos.y) > 26) return { npc3Pos: moveToSeat(s) };
-        return { npc3Sitting: true, npc3Pos: s, npc3PauseUntil: state.elapsedMs + 6000 + Math.random() * 9000, npc3Detour: null, npc3StuckMs: 0 };
+        // Yebin used to hop back up after only 6-15s on the sofa — noticeably briefer than everyone else's
+        // stay. Roughly doubled so she actually lingers there instead of feeling like she's just passing through.
+        return { npc3Sitting: true, npc3Pos: s, npc3PauseUntil: state.elapsedMs + 14000 + Math.random() * 16000, npc3Nav: initNav(s) };
       }
       if (state.elapsedMs < state.npc3PauseUntil) return state;
-      return { npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 1400, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
+      return { npc3Seat: null, npc3Sitting: false, npc3PauseUntil: state.elapsedMs + 1400, npc3Target: randomFloorPoint(300, 1080, 420, 740) };
     }
     if (state.elapsedMs < state.npc3PauseUntil) return state;
     const dist = Math.hypot(state.npc3Target.x - state.npc3Pos.x, state.npc3Target.y - state.npc3Pos.y);
@@ -1265,23 +1372,13 @@ export const useGameStore = create<GameState>((set) => ({
       // Arrived — usually claim a FREE seat (never NPC2's), else wander on.
       const seat = pickFreeSeat([state.npc2Seat]);
       if (seat && Math.random() < 0.6) return { npc3Seat: seat };
-      return { npc3PauseUntil: state.elapsedMs + 1200 + Math.random() * 3000, npc3Target: clampToRoom({ x: 300 + Math.random() * 780, y: 420 + Math.random() * 320 }) };
+      return { npc3PauseUntil: state.elapsedMs + 1200 + Math.random() * 3000, npc3Target: randomFloorPoint(300, 1080, 420, 740) };
     }
-    // Steer to an active detour waypoint first (it skirts whatever Yebin snagged on), then resume the target.
-    const npc3Pos = moveTo(state.npc3Detour ?? state.npc3Target);
-    const moved = Math.hypot(npc3Pos.x - state.npc3Pos.x, npc3Pos.y - state.npc3Pos.y);
-    // Reached the detour waypoint → drop it and head for the real target again.
-    if (state.npc3Detour && Math.hypot(npc3Pos.x - state.npc3Detour.x, npc3Pos.y - state.npc3Detour.y) <= 40) {
-      return { npc3Pos, npc3Detour: null, npc3StuckMs: 0 };
-    }
-    // Same recovery as Path/Tom: grinding with no headway for ~3s → a collision-checked sidestep waypoint
-    // around the obstacle, instead of blindly re-picking a raw random point (which could land on the same
-    // blocked spot again and again — the "stuck retrying the same direction" glitch).
-    if (dist > 30 && moved < step * 0.25) {
-      const stuck = state.npc3StuckMs + deltaMs;
-      if (stuck >= 3000) return { npc3Pos, npc3Detour: pickDetour(state.npc3Pos, state.npc3Target), npc3StuckMs: 0 };
-      return { npc3Pos, npc3StuckMs: stuck };
-    }
-    return state.npc3StuckMs !== 0 ? { npc3Pos, npc3StuckMs: 0 } : { npc3Pos };
+    // Real A* pathfinding (not reactive dodging) so Yebin can't get trapped in a concave pocket; if it
+    // still can't make headway, fall back to a fresh (collision-checked) wander target.
+    const result = followPath(state.npc3Nav, state.npc3Pos, state.npc3Target, step, deltaMs, others, -1, () => randomFloorPoint(300, 1080, 420, 740));
+    const patch: Partial<GameState> = { npc3Pos: result.pos, npc3Nav: result.nav };
+    if (result.retargeted) patch.npc3Target = result.retargeted;
+    return patch;
   }),
 }));

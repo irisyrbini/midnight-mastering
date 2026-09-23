@@ -621,6 +621,7 @@ const GLB_LIE = '/models/lie.glb'; // Knock_Down (plays once, holds the lying en
 // The scroll + ukulele FBX are quaternion-only (no foreign translation), so they bind cleanly.
 const FBX_SCROLL = '/models/scroll.fbx'; // Doomscroll (lying, thumbing the phone)
 const FBX_MAKETUNE = '/models/maketune.fbx'; // seated collaboration performance
+const FBX_DRINK = '/models/drink.fbx'; // seated vodka-with-a-friend performance
 const FBX_UKULELE = '/models/ukulele.fbx'; // Ukulele performance (standing, strumming)
 const MODEL_SCALE = 1.7; // tuned so the model reads as human-scale against the furniture
 const MODEL_FORWARD = 0; // yaw offset if the model's front axis isn't −z (tuned after first view)
@@ -669,6 +670,15 @@ const PATH_SIT: PoseCalib = { rootY: 0.88, rootZ: -0.1, yawOffset: -Math.PI / 2 
 const TOM_SIT: PoseCalib = { rootY: 0.62, rootZ: 0.75, yawOffset: Math.PI };   // NPC2 clap/drink FBX (own rig)
 const TOM_SIT_PITCH = -1.1; // radians — visually calibrated, see comment above
 const YEBIN_SIT: PoseCalib = { rootY: 0.24, rootZ: -0.1, yawOffset: -Math.PI / 2 }; // NPC3 sit.glb
+// maketune.fbx's 3s loop swings through a deep forward hunch (reads as sprawled onto the floor/desk) for
+// most of its range on BOTH Jonny's and Path's rigs — anchoring the Hips only removes translation, not the
+// clip's own rotation, so looping it never held a good seated silhouette. Frame-scrubbed by eye: 1.4s is
+// the one point in the loop where the torso reads as upright-ish and actively "playing", not collapsed.
+// Held as a single frame (like sit/lie already do) rather than looped.
+const MAKETUNE_HOLD_TIME = 1.4;
+// drink.fbx / shadow_drink.fbx: same held-single-frame treatment as maketune, for the same reason
+// (the full loop swings through poses that don't read as a seated "cheers" moment). Frame-scrubbed by eye.
+const DRINK_HOLD_TIME = 0.8;
 
 // ── Silhouette material pass. The GLB ships as ONE SkinnedMesh with one textured material; for the MMHA
 //    look we override it at runtime with a matte near-black material so the character reads as a moving
@@ -822,6 +832,7 @@ function PlayerModel() {
   // Interaction poses (FBX): real motion on the Armature bones, bound by bone name to the GLB skeleton.
   const scrollFbx = useLoader(FBXLoader, FBX_SCROLL);
   const maketuneFbx = useLoader(FBXLoader, FBX_MAKETUNE);
+  const drinkFbx = useLoader(FBXLoader, FBX_DRINK);
   const ukuleleFbx = useLoader(FBXLoader, FBX_UKULELE);
   // One reusable silhouette material for this instance (created once, disposed on unmount).
   const silhouette = useMemo(() => createMMHASilhouetteMaterial(CHARACTER_RENDER_MODE), []);
@@ -842,11 +853,16 @@ function PlayerModel() {
     // sit/lie (GLB) bake a step-in walk into the root — anchor them in place so the body stays on the chair/bed.
     anchorHipsInPlace(pickClip(sit, 'sit')), anchorHipsInPlace(pickClip(lie, 'lie')),
     fbxPick(scrollFbx, 'scroll'), // doomscroll lying pose (quaternion-only)
-    // Seated collaboration motion. Keep the (cm→m scaled) Hips-Y and anchor X/Z so the pelvis actually
-    // drops onto the chair like `sit` does — quaternion-only left the butt floating at standing height.
+    // Seated collaboration motion, held at a single scrubbed frame (MAKETUNE_HOLD_TIME) rather than
+    // looped, so the clip's own large authored Hips-Y drop over its timeline never accumulates into a
+    // "sprawled on the floor" look. Only X/Z are anchored here (not full XYZ, as Path's cross-rig copy
+    // uses) — fully zeroing this rig's own Hips.position made the mesh render invisible (its skin
+    // binding appears to depend on the Hips track keeping a non-zero Y), so root height is still driven
+    // by JONNY_SIT.rootY while the clip's own (small, at this held frame) Y offset rides on top of it.
     anchorHipsInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01)),
+    anchorHipsInPlace(fbxPick(drinkFbx, 'drink', false, false, true, 0.01)),
     fbxPick(ukuleleFbx, 'ukulele'), // standing strum performance (quaternion-only, upright)
-  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scrollFbx, maketuneFbx, ukuleleFbx]);
+  ].filter(Boolean) as THREE.AnimationClip[], [idle, walk, run, sit, lie, scrollFbx, maketuneFbx, drinkFbx, ukuleleFbx]);
   const group = useRef<THREE.Group>(null);
   const phoneProp = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
@@ -871,13 +887,12 @@ function PlayerModel() {
     const dx = x - c.x, dz = z - c.z; c.x = x; c.z = z;
     const moving = !seated && !lying && Math.hypot(dx, dz) > 0.0015;
     const ease = Math.min(1, dt * 10);
-    // Clip per state. All SEATED activities (plain sit / make-a-tune / drink-vodka) use the GLB `sit` pose,
-    // which reliably seats the body ON the chair; the make-tune/drink FBX clips are authored on a rig whose
-    // Hips rest doesn't map onto this GLB skeleton (they render displaced/invisible), so seated activities
-    // are differentiated by their FX/prop overlays instead. Lying (sleep / doomscroll) uses the GLB `lie`.
+    // Clip per state. Lying (sleep / doomscroll) uses the GLB `lie`. Make-a-tune uses the maketune FBX
+    // held at a single frame (MAKETUNE_HOLD_TIME) rather than looped — see its definition for why.
     const want = moving ? (s.running ? 'run' : 'walk')
       : s.playingUkulele ? 'ukulele' // standing strum performance (ukulele.fbx)
       : s.friendActivity === 'tune' ? 'maketune'
+      : s.friendActivity === 'vodka' ? 'drink'
       : (seated && s.lastInteraction?.id === 'mechanicalKeyboard') ? 'maketune' // solo: hands up at the keyboard
       : (lying && s.scrolling) ? 'scroll' // doomscroll: real scroll motion, same lie orientation
       : lying ? 'lie'
@@ -888,12 +903,17 @@ function PlayerModel() {
       const next = actions[want];
       if (next) {
         next.reset();
-        // Locomotion, idle, and the ongoing seated/lying ACTIVITY loops (tune / drink / scroll) cycle;
-        // only the one-shot transitions (sit / lie) play once and hold their end frame.
-        const once = want === 'sit' || want === 'lie';
-        next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
-        next.clampWhenFinished = once;
-        next.fadeIn(0.2).play();
+        // Locomotion, idle, and the doomscroll loop cycle; sit/lie hold their one-shot end frame, and
+        // maketune/drink hold their own scrubbed frame (see MAKETUNE_HOLD_TIME/DRINK_HOLD_TIME) instead
+        // of looping or one-shotting.
+        if (want === 'maketune') { next.setEffectiveWeight(1); next.play(); next.paused = true; next.time = MAKETUNE_HOLD_TIME; }
+        else if (want === 'drink') { next.setEffectiveWeight(1); next.play(); next.paused = true; next.time = DRINK_HOLD_TIME; }
+        else {
+          const once = want === 'sit' || want === 'lie';
+          next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
+          next.clampWhenFinished = once;
+          next.fadeIn(0.2).play();
+        }
       }
       c.clip = want;
     }
@@ -929,7 +949,7 @@ function PlayerModel() {
 }
 useGLTF.preload(GLB_IDLE); useGLTF.preload(GLB_WALK); useGLTF.preload(GLB_RUN);
 useGLTF.preload(GLB_SIT); useGLTF.preload(GLB_LIE);
-useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_MAKETUNE); useLoader.preload(FBXLoader, FBX_UKULELE);
+useLoader.preload(FBXLoader, FBX_SCROLL); useLoader.preload(FBXLoader, FBX_MAKETUNE); useLoader.preload(FBXLoader, FBX_DRINK); useLoader.preload(FBXLoader, FBX_UKULELE);
 
 /** Jonny. The GLB stays mounted in EVERY state (walk / idle / seated / lying) — PlayerModel handles the
  *  per-state root transform + pose, so the old procedural body is never swapped back in. This group only
@@ -1015,6 +1035,8 @@ const NPC1_WALK = '/models/shadow/walk.glb'; // Path = Shadow Frequency
 const NPC1_SIT = '/models/shadow/sit.glb';
 const NPC1_IDLE = '/models/shadow/idle.glb'; // canonical base pose (clip0)
 const NPC1_MAKETUNE = '/models/maketune.fbx';
+const NPC1_DRINK = '/models/shadow/shadow_drink.fbx'; // seated vodka-with-a-friend performance (Path's own rig)
+const NPC1_SIT2 = '/models/shadow/shadow_sit2.glb'; // seated video-game-on-the-sofa pose (Path's own rig)
 // Jonny renders at ~1.7·1.7 = 2.89 units = 173cm (≈59.9 cm/unit); Path 190cm → ~3.17 units. Shadow
 // Frequency is 1.88 raw, so scale ≈ 3.17/1.88 ≈ 1.69 (measured bounding box, not a blind ratio).
 const NPC1_SCALE = 1.69;
@@ -1025,6 +1047,8 @@ function Npc1Model() {
   const sitGlb = useGLTF(NPC1_SIT);
   const idleGlb = useGLTF(NPC1_IDLE);
   const maketuneFbx = useLoader(FBXLoader, NPC1_MAKETUNE);
+  const drinkFbx = useLoader(FBXLoader, NPC1_DRINK);
+  const sit2Glb = useGLTF(NPC1_SIT2);
   const selectObject = useGameStore((s) => s.selectObject);
   const selected = useGameStore((s) => s.selectedObjectId === 'visitor');
   const friendActivity = useGameStore((s) => s.friendActivity);
@@ -1038,7 +1062,12 @@ function Npc1Model() {
     bones.current = grabPoseBones(root);
     return root;
   }, [walkGlb.scene, silhouette]);
-  const clips = useMemo(() => [pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true), anchorHipsFullyInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01))].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx]);
+  const clips = useMemo(() => [
+    pickClip(walkGlb, 'walk'), pickClip(sitGlb, 'sit'), pickClip(idleGlb, 'idle', true),
+    anchorHipsFullyInPlace(fbxPick(maketuneFbx, 'maketune', false, false, true, 0.01)),
+    anchorHipsFullyInPlace(fbxPick(drinkFbx, 'drink', false, false, true, 0.01)),
+    anchorHipsInPlace(pickClip(sit2Glb, 'sit2')),
+  ].filter(Boolean) as THREE.AnimationClip[], [walkGlb, sitGlb, idleGlb, maketuneFbx, drinkFbx, sit2Glb]);
   const group = useRef<THREE.Group>(null);
   const drinkGlass = useRef<THREE.Group>(null);
   const { actions } = useAnimations(clips, scene);
@@ -1078,18 +1107,25 @@ function Npc1Model() {
     // Lift the pelvis onto the friend-chair seat while seated (was sitting at floor height, root Y = 0).
     group.current.position.set(vx, s.friendActivity ? PATH_SIT.rootY : 0, vz);
     group.current.rotation.y = c.facing;
-    // Clip: ANY friend activity (tune/vodka/video-game) shows the same active seated maketune loop — hands
-    // moving at the desk, facing it — rather than a frozen sit-hold frame; the FX/prop overlays (drink
-    // glass, game screen glow) differentiate what's actually happening. Walk while moving, else idle at the synth.
-    const want = s.friendActivity ? 'maketune' : moving ? 'walk' : 'idle';
+    // Clip: seated collab holds a single frame of maketune/drink rather than looping them — each clip's
+    // full loop swings through a deep forward hunch (sprawled almost onto the floor) for most of its
+    // range; MAKETUNE_HOLD_TIME/DRINK_HOLD_TIME (visually scrubbed frame-by-frame) is the one point where
+    // the torso reads as upright-ish and seated rather than collapsed. video-game holds sit2's end frame
+    // like a plain sit. Walk while moving, else idle at the synth.
+    const want = s.friendActivity === 'tune' ? 'maketune'
+      : s.friendActivity === 'vodka' ? 'drink'
+      : s.friendActivity === 'video-game' ? 'sit2'
+      : moving ? 'walk' : 'idle';
     if (want !== c.clip) {
       if (c.clip) actions[c.clip]?.fadeOut(0.2);
       const a = actions[want];
       if (a) {
         a.reset();
-        // walk/idle/maketune all loop continuously; only a held seated end-frame (unused here currently) would be one-shot.
-        const once = want !== 'walk' && want !== 'idle' && want !== 'maketune';
-        if (once) { a.play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } // hold the end frame
+        // walk/idle loop continuously; maketune/drink (held scrubbed pose) and sit2 (held end-frame) hold in place.
+        const once = want !== 'walk' && want !== 'idle';
+        if (want === 'maketune') { a.setEffectiveWeight(1); a.play(); a.paused = true; a.time = MAKETUNE_HOLD_TIME; }
+        else if (want === 'drink') { a.setEffectiveWeight(1); a.play(); a.paused = true; a.time = DRINK_HOLD_TIME; }
+        else if (once) { a.play(); a.paused = true; a.time = Math.max(0, a.getClip().duration - 0.05); } // hold the end frame
         else { a.setLoop(THREE.LoopRepeat, Infinity); a.clampWhenFinished = false; a.fadeIn(0.2).play(); }
       }
       c.clip = want;
@@ -1111,7 +1147,8 @@ function Npc1Model() {
     {selected && <Html center position={[0, 2.9, 0]} distanceFactor={9}><div className="rounded bg-night/90 px-2 py-1 text-[10px] text-paper whitespace-nowrap">FRIEND · ENTER</div></Html>}
   </group>;
 }
-useGLTF.preload(NPC1_WALK); useGLTF.preload(NPC1_SIT); useGLTF.preload(NPC1_IDLE); useLoader.preload(FBXLoader, NPC1_MAKETUNE);
+useGLTF.preload(NPC1_WALK); useGLTF.preload(NPC1_SIT); useGLTF.preload(NPC1_IDLE); useGLTF.preload(NPC1_SIT2);
+useLoader.preload(FBXLoader, NPC1_MAKETUNE); useLoader.preload(FBXLoader, NPC1_DRINK);
 
 /** Path (NPC1). Mounts only while visiting; the Shadow Frequency GLB streams in behind the procedural
  *  fallback so it never falls back to the old geometry once loaded. */
