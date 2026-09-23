@@ -32,34 +32,35 @@ const GROUP_BY_ID: Record<string, SoundByteGroup> = {
 
 /**
  * Canonical piece id → real audio file mapping. These are the 20 actual recorded stems from the finished
- * song ("SOUND BYTES FOR MMHA GAME/"), copied verbatim into public/assets/audio/sound-bytes/<id>.wav (renamed
- * from their original session names to the stable interaction id, nothing else changed). Chosen by ear/fit
- * against each object — e.g. the mic gets the lead vocal stem, the modular rack gets the bass, the mechanical
- * keyboard gets a clicky hat layer — but the specific pairing is cosmetic; what matters is that it's fixed:
- * every piece has exactly one file, every file is used exactly once, and this table is the only place the
- * pairing is decided.
+ * song ("SOUND BYTES FOR MMHA GAME/"), transcoded from the original 24-bit/48kHz WAV exports to 192kbps MP3
+ * (~92% smaller, no audible loss for game SFX — MP3 over OGG specifically because Safari's decodeAudioData
+ * doesn't support Ogg Vorbis) and copied into public/assets/audio/sound-bytes/<id>.mp3, renamed from their
+ * original session names to the stable interaction id. Chosen by ear/fit against each object — e.g. the mic
+ * gets the lead vocal stem, the modular rack gets the bass, the mechanical keyboard gets a clicky hat layer —
+ * but the specific pairing is cosmetic; what matters is that it's fixed: every piece has exactly one file,
+ * every file is used exactly once, and this table is the only place the pairing is decided.
  */
 const SOUND_BYTE_FILES: Record<string, string> = {
-  laptop: 'laptop.wav',                       // SYNTH PAD
-  modularSynths: 'modularSynths.wav',         // SYNTH BASS
-  mechanicalKeyboard: 'mechanicalKeyboard.wav', // HAT LAYER
-  dualMonitors: 'dualMonitors.wav',           // HAT LAYER 2
-  studioMonitors: 'studioMonitors.wav',       // WAVY SYNTH THAT MADE THIS SONG
-  portasound: 'portasound.wav',               // SYNTH KEYS
-  sk5: 'sk5.wav',                             // 3 NOTE SYNTH
-  acousticGuitar: 'acousticGuitar.wav',       // MAIN GUITAR
-  electricGuitar: 'electricGuitar.wav',       // LFO SYNTH
-  mic: 'mic.wav',                             // MAIN VOCALS
-  ukulele: 'ukulele.wav',                     // 3 NOTE SYNTH HIGH
-  lyricNotebook: 'lyricNotebook.wav',         // SHAKER
-  audioInterface: 'audioInterface.wav',       // BACKING VOX
-  shelves: 'shelves.wav',                     // SNARE LAYER 2
-  window: 'window.wav',                       // EAGLE
-  bed: 'bed.wav',                             // KICK LAYER
-  miniFridge: 'miniFridge.wav',               // HAT LAYER 3
-  switch: 'switch.wav',                       // SNARE ROLL
-  vodka: 'vodka.wav',                         // SNARE
-  cigarettes: 'cigarettes.wav',               // KICK LAYER 2
+  laptop: 'laptop.mp3',                       // SYNTH PAD
+  modularSynths: 'modularSynths.mp3',         // SYNTH BASS
+  mechanicalKeyboard: 'mechanicalKeyboard.mp3', // HAT LAYER
+  dualMonitors: 'dualMonitors.mp3',           // HAT LAYER 2
+  studioMonitors: 'studioMonitors.mp3',       // WAVY SYNTH THAT MADE THIS SONG
+  portasound: 'portasound.mp3',               // SYNTH KEYS
+  sk5: 'sk5.mp3',                             // 3 NOTE SYNTH
+  acousticGuitar: 'acousticGuitar.mp3',       // MAIN GUITAR
+  electricGuitar: 'electricGuitar.mp3',       // LFO SYNTH
+  mic: 'mic.mp3',                             // MAIN VOCALS
+  ukulele: 'ukulele.mp3',                     // 3 NOTE SYNTH HIGH
+  lyricNotebook: 'lyricNotebook.mp3',         // SHAKER
+  audioInterface: 'audioInterface.mp3',       // BACKING VOX
+  shelves: 'shelves.mp3',                     // SNARE LAYER 2
+  window: 'window.mp3',                       // EAGLE
+  bed: 'bed.mp3',                             // KICK LAYER
+  miniFridge: 'miniFridge.mp3',               // HAT LAYER 3
+  switch: 'switch.mp3',                       // SNARE ROLL
+  vodka: 'vodka.mp3',                         // SNARE
+  cigarettes: 'cigarettes.mp3',               // KICK LAYER 2
 };
 
 // Preload every real stem once, as soon as this module is imported, so the first DAW trigger never stalls
