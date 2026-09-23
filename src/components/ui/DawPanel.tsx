@@ -70,14 +70,25 @@ export function DawPanel() {
     if (grid[cell.track]) grid[cell.track][cell.step] = pieceId;
   }
 
-  // Mute/volume take effect immediately on whatever is already sounding, not just on the next time the
-  // step loop retriggers that clip — otherwise a track already playing its ~20s stem would keep sounding
-  // at the old level for up to a full bar after the mute/slider was touched.
+  // Mute/volume take effect immediately, not just on the next time the step loop retriggers that clip.
+  // Muting can always just ramp the currently-sounding clip's gain down — it's already audible, so a live
+  // gain change is heard right away. Unmuting is not symmetric: the muted track's clip stopped being
+  // retriggered the whole time it was muted (see the `trackMuted[track]` skip in playColumn below), so by
+  // the time you unmute, its previous source has very likely already finished playing — there's nothing
+  // live left to ramp back up, and the byte would otherwise stay silent until the step loop happened to
+  // cycle back around to this clip's column (up to a full 32-step bar later), which read as "unmute does
+  // nothing until you press Mix / Finish" (Mix/Finish forces an immediate fresh trigger of every column).
+  // So a mute→unmute transition while playing instead forces a fresh trigger, same as Mix/Finish does.
+  const prevMutedRef = useRef<boolean[]>(trackMuted);
   useEffect(() => {
+    const prevMuted = prevMutedRef.current;
     for (const [pieceId, cell] of Object.entries(placedClips)) {
-      setSoundByteLiveVolume(pieceId, trackMuted[cell.track] ? 0 : trackVolume[cell.track]);
+      const muted = trackMuted[cell.track];
+      if (!muted && prevMuted[cell.track] && isPlaying) soundByteById[pieceId]?.play(trackVolume[cell.track]);
+      else setSoundByteLiveVolume(pieceId, muted ? 0 : trackVolume[cell.track]);
     }
-  }, [trackMuted, trackVolume, placedClips]);
+    prevMutedRef.current = trackMuted;
+  }, [trackMuted, trackVolume, placedClips, isPlaying]);
 
   const playColumn = useCallback((col: number) => {
     for (let track = 0; track < DAW_TRACK_COUNT; track += 1) {
@@ -204,9 +215,10 @@ export function DawPanel() {
             return (
               <div
                 key={byte.id}
-                onPointerDown={(e) => beginPress(byte.id, null, e)}
-                style={{ touchAction: 'none', opacity: beingDragged ? 0.35 : 1 }}
-                className="flex w-full cursor-grab select-none items-center gap-2 rounded-md border border-paper/20 bg-paper/5 px-2.5 py-1.5 text-left text-[11px] text-paper/85 transition-colors hover:bg-paper/10 active:cursor-grabbing"
+                onPointerDown={working ? (e) => beginPress(byte.id, null, e) : undefined}
+                style={{ touchAction: 'none', opacity: beingDragged ? 0.35 : working ? 1 : 0.5 }}
+                title={working ? undefined : 'Press "Work on music" to start arranging'}
+                className={`flex w-full select-none items-center gap-2 rounded-md border border-paper/20 bg-paper/5 px-2.5 py-1.5 text-left text-[11px] text-paper/85 transition-colors ${working ? 'cursor-grab hover:bg-paper/10 active:cursor-grabbing' : 'cursor-not-allowed'}`}
               >
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: GROUP_COLOR[byte.group] }} />
                 <span className="truncate">{byte.label}</span>
@@ -214,7 +226,7 @@ export function DawPanel() {
             );
           })}
         </div>
-        <p className="mt-3 text-[10px] leading-snug text-paper/35">Drag a sound byte onto the timeline. Drag a placed clip to move it; tap it once to send it back.</p>
+        <p className="mt-3 text-[10px] leading-snug text-paper/35">{working ? 'Drag a sound byte onto the timeline. Drag a placed clip to move it; tap it once to send it back.' : 'Press "Work on music" below to start arranging clips.'}</p>
       </aside>
 
       {/* Timeline / arrangement view. */}
@@ -286,7 +298,7 @@ export function DawPanel() {
                     <div
                       key={col}
                       ref={(el) => { cellRefs.current[track][col] = el; }}
-                      onPointerDown={byte ? (e) => beginPress(byte.id, { track, step: col }, e) : undefined}
+                      onPointerDown={byte && working ? (e) => beginPress(byte.id, { track, step: col }, e) : undefined}
                       style={{
                         touchAction: 'none',
                         opacity: muted ? 0.35 : 1,
@@ -295,11 +307,11 @@ export function DawPanel() {
                       }}
                       className={`relative select-none overflow-hidden rounded border transition-colors ${
                         isDragSource ? 'border-dashed border-paper/20 bg-paper/[0.02] opacity-40'
-                        : byte ? 'cursor-grab border-transparent active:cursor-grabbing'
+                        : byte ? `border-transparent ${working ? 'cursor-grab active:cursor-grabbing' : ''}`
                         : drag ? 'border-dashed border-[#d8c79c]/35 bg-paper/[0.03]'
                         : 'border-paper/10 bg-paper/[0.02]'
                       } ${active && !byte && !isHovered ? 'bg-[#d8c79c]/10' : ''} ${isHovered && !byte ? (dropOccupied ? 'bg-[#d84f59]/10' : 'bg-[#6d9c7b]/10') : ''}`}
-                      title={byte ? `${byte.label} — drag to move, tap to remove` : undefined}
+                      title={byte ? (working ? `${byte.label} — drag to move, tap to remove` : `${byte.label} (press "Work on music" to rearrange)`) : undefined}
                     >
                       {byte && !isDragSource && <Waveform id={byte.id} group={byte.group} />}
                     </div>
