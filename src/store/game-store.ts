@@ -761,7 +761,12 @@ export const useGameStore = create<GameState>((set) => ({
   }),
   pause: () => set((state) => (state.phase === 'playing' ? { phase: 'paused' } : state)),
   // Resume also wakes the producer from a forced rest and stands them back up.
-  resume: () => set((state) => (state.phase === 'paused' ? { phase: 'playing', sleeping: false, lyingDown: false } : state)),
+  // Also fires when `sleeping` alone is true: hydrateSession unconditionally forces a saved 'paused' phase
+  // back to 'playing' on load (so a save from the manual pause menu never reopens stuck), but the forced-
+  // rest overlay shares that same 'paused' halt and is otherwise gated purely on `sleeping` — so a save/
+  // reload that lands while the "you fell asleep" screen is up left `phase: 'playing'` + `sleeping: true`,
+  // an overlay stuck on screen forever with a "Keep going" button that could never satisfy this guard.
+  resume: () => set((state) => (state.phase === 'paused' || state.sleeping ? { phase: 'playing', sleeping: false, lyingDown: false } : state)),
   restart: () => set({ phase: 'playing', ...initialSession() }),
   continueAfterChapter: () => set((state) => ({
     phase: 'playing',
