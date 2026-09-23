@@ -785,9 +785,11 @@ function grabPoseBones(root: THREE.Object3D): PoseBones {
 }
 
 /** Ukulele held across the chest while performing (an overlay, so it's always visible — reliably shown
- *  in front of the standing strum pose rather than parented to a hand bone). Faces the camera-ish. */
+ *  in front of the standing strum pose rather than parented to a hand bone). Faces the camera-ish.
+ *  Mirrored left/right from its previous tilt (neck/head now leans toward the body's right, the sound
+ *  hole/body toward its lower left) — the Y and Z tilt components are negated relative to the old pose. */
 function HeldUkulele() {
-  return <group position={[0.12, 1.6, 0.34]} rotation={[0.15, 0.2, -0.5]}>
+  return <group position={[0.12, 1.6, 0.34]} rotation={[0.15, -0.2, 0.5]}>
     <mesh position={[0, 0, 0]} scale={[1, 1.25, 0.42]} castShadow><sphereGeometry args={[0.2, 14, 10]} /><meshStandardMaterial color="#c68a4e" roughness={0.5} /></mesh>
     <mesh position={[0, 0.02, 0.09]}><circleGeometry args={[0.06, 14]} /><meshStandardMaterial color="#2a1c12" /></mesh>
     <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[0.06, 0.56, 0.045]} /><meshStandardMaterial color="#7a5a41" roughness={0.6} /></mesh>

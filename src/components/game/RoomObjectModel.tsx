@@ -275,6 +275,22 @@ function WindowUnit({ width = 3.8, celestial = true }: { width?: number; celesti
   const pane = useRef<THREE.Group>(null);
   const clouds = useRef<THREE.Group>(null);
   const { daylight, golden, sunProgress } = dayCycle(minute);
+  // Distant building skyline: hashed per-index width/height/tone/window-count so it reads as an irregular
+  // silhouette of separate buildings rather than a uniform row of bars (the previous version was exactly
+  // 10 identical-width blocks on a 3-step height cycle, which read as an equalizer/HUD graphic, not a city).
+  const buildings = useMemo(() => {
+    let h = 0x9e3779b9; // fixed seed — same skyline every mount, both windows agree
+    const rand = () => { h = (Math.imul(h ^ (h << 13), 0x85ebca6b) ^ (h >>> 15)) >>> 0; return h / 4294967296; };
+    return Array.from({ length: 13 }, (_, i) => {
+      const w = 0.1 + rand() * 0.1;
+      const height = 0.16 + rand() * 0.4;
+      const tone = rand();
+      const x = -1.32 + i * (2.64 / 12) + (rand() - 0.5) * 0.09;
+      const windowCount = 1 + Math.floor(rand() * 3);
+      const windows = Array.from({ length: windowCount }, () => ({ wx: (rand() - 0.5) * w * 0.55, wy: (rand() - 0.5) * height * 0.65 }));
+      return { x, w, height, tone, windows };
+    });
+  }, []);
   const wet = weather === 'rain' || weather === 'hail';
   // Night → day, warmed through the golden hour, then dulled and darkened while it rains.
   const sky = new THREE.Color('#09142b')
@@ -308,7 +324,21 @@ function WindowUnit({ width = 3.8, celestial = true }: { width?: number; celesti
       <group ref={clouds} position={[0, 0.6, -0.025]}>
         {[[-1.3, 0.1], [0.2, 0.35], [1.5, -0.1]].map(([cx, cy], i) => <mesh key={`cl${i}`} position={[cx, cy, 0]}><boxGeometry args={[0.9, 0.22, 0.02]} /><meshStandardMaterial color={daylight > 0.4 ? '#e9f1fb' : '#3a4a63'} emissive={daylight > 0.4 ? '#cddcf0' : '#26364f'} emissiveIntensity={daylight > 0.4 ? 0.3 : 0.5} transparent opacity={0.75} /></mesh>)}
       </group>
-      {Array.from({ length: 10 }).map((_, i) => <mesh key={`c${i}`} position={[-1.25 + i * 0.27, -0.62 - (i % 3) * 0.05, -0.01]}><boxGeometry args={[0.14, 0.22 + (i % 3) * 0.1, 0.02]} /><meshStandardMaterial color="#3a5a7a" emissive="#4f8f9c" emissiveIntensity={0.5} /></mesh>)}
+      {/* Distant buildings, each its own width/height/tone, with a scatter of lit windows after dark. */}
+      {buildings.map((b, i) => {
+        const color = new THREE.Color('#1c2c44').lerp(new THREE.Color('#3d5872'), b.tone).getStyle();
+        return (
+          <group key={`bd${i}`} position={[b.x, -0.98 + b.height / 2, -0.011]}>
+            <mesh><boxGeometry args={[b.w, b.height, 0.018]} /><meshStandardMaterial color={color} /></mesh>
+            {daylight < 0.42 && b.windows.map((win, wi) => (
+              <mesh key={wi} position={[win.wx, win.wy, 0.01]}>
+                <planeGeometry args={[0.016, 0.022]} />
+                <meshStandardMaterial color="#ffd98a" emissive="#ffc86b" emissiveIntensity={2.4} toneMapped={false} />
+              </mesh>
+            ))}
+          </group>
+        );
+      })}
       {wet && <RainCurtain hail={weather === 'hail'} />}
     </group>
     {/* openable glass pane, hinged at the bottom */}
@@ -584,8 +614,8 @@ export function RoomObjectModel({ object }: { object: StudioObject }) {
       <KeyStrip y={0.15} width={1.0} />
     </group>;
 
-    case 'acousticGuitar': return <Guitar body="#ba8653" scale={0.78} />;
-    case 'electricGuitar': return <Guitar body="#e9e8df" solid scale={0.78} />;
+    case 'acousticGuitar': return <Guitar body="#ba8653" scale={0.62} />;
+    case 'electricGuitar': return <Guitar body="#e9e8df" solid scale={0.62} />;
 
     case 'bed': return <Bed />;
 
