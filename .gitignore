@@ -52,6 +52,8 @@ public/models/bigfreq/*
 !public/models/shadow/walk.glb
 !public/models/shadow/sit.glb
 !public/models/shadow/idle.glb
+!public/models/shadow/shadow_drink.fbx
+!public/models/shadow/shadow_sit2.glb
 # NPC2 (Tom = redesigned "Urban Shadow Figure") is now FBX: mesh/idle + walk + seated clips + its textures.
 !public/models/bigfreq/idle.fbx
 !public/models/bigfreq/Meshy_AI_Urban_Shadow_Figure_biped_Animation_Walking_withSkin.fbx
