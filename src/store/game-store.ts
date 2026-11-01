@@ -6,7 +6,7 @@ import { STUDIO_OBJECTS, CHAIR_SIT_ANCHOR, BED_LIE_ANCHOR, SYNTH_PERFORMANCE_ANC
 import { crystalState, emotionalNeedDrift, INITIAL_EMOTIONAL_GRAPH, resolveEmotionGraph, weightedEmotionalScore } from '@/game/simulation/emotionalGraph';
 import type { CrystalState, EmotionalEffect, Ending, EmotionalGraphState, FriendActivity, GamePhase, GameSnapshot, Interaction, NeedChange, ProducerNeeds, WeatherKind } from '@/types/game';
 
-type GameState = GameSnapshot & {
+export type GameState = GameSnapshot & {
   setPhase: (phase: GamePhase) => void;
   hydrateSession: (snapshot: Partial<GameSnapshot>) => void;
   elapsedMs: number;

@@ -14,6 +14,7 @@ import { FriendMenu } from './FriendMenu';
 import { ElevatorFloors } from './ElevatorFloors';
 import { SaveMenu } from './SaveMenu';
 import { SheetMusicToast } from './SheetMusicToast';
+import { InteractionCard } from './InteractionCard';
 import { SheetMusicView } from './SheetMusicView';
 import { SHEET_PIECE_TOTAL, collectedCount } from '@/data/sheet-music';
 
@@ -43,7 +44,6 @@ export function GameHud() {
   // The chapter ending and the forced-rest beat want a clear screen — hide the persistent HUD so the
   // room and the quiet text can carry the moment (the overlays below still render).
   const quiet = phase === 'ending' || sleeping;
-  const lastInteraction = useGameStore((state) => state.lastInteraction);
   const crystal = useGameStore((state) => state.crystal);
   const emotionalGraph = useGameStore((state) => state.emotionalGraph);
   const albumProgress = useGameStore((state) => state.albumProgress);
@@ -90,9 +90,7 @@ export function GameHud() {
         <span className="font-mono text-xs" style={{ color: sheetComplete ? '#d8c79c' : 'rgba(238,236,228,0.7)' }}>{sheetCount} / {SHEET_PIECE_TOTAL}{sheetComplete ? ' ✓' : ''}</span>
       </button>
     </aside>
-    {lastInteraction && <aside className="pointer-events-none absolute bottom-5 left-1/2 w-[min(440px,calc(100%-2.5rem))] -translate-x-1/2 rounded-xl border border-paper/45 bg-night/90 px-5 py-4 text-center shadow-2xl">
-      <p className="text-sm text-paper"><span className="font-semibold">{lastInteraction.label}</span> · {lastInteraction.description}</p>
-    </aside>}
+    <InteractionCard />
     <SheetMusicToast />
     </>}
     <SheetMusicView />
