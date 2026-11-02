@@ -39,6 +39,21 @@ export function UnityGame() {
     return () => { window.removeEventListener('resize', update); window.removeEventListener('orientationchange', update); };
   }, []);
 
+  // Pinches belong to the game (it zooms the room): stop Safari from zooming the page instead, which it does even
+  // with user-scalable=no.
+  useEffect(() => {
+    const block = (e: Event) => e.preventDefault();
+    const multiTouch = (e: TouchEvent) => { if (e.touches.length > 1) e.preventDefault(); };
+    document.addEventListener('gesturestart', block);
+    document.addEventListener('gesturechange', block);
+    document.addEventListener('touchmove', multiTouch, { passive: false });
+    return () => {
+      document.removeEventListener('gesturestart', block);
+      document.removeEventListener('gesturechange', block);
+      document.removeEventListener('touchmove', multiTouch);
+    };
+  }, []);
+
   // First touch on a phone: go fullscreen and hold landscape where the browser allows it (Android; iOS ignores it).
   const goLandscape = async () => {
     canvas.current?.focus(); // keys (Esc, Enter, WASD) reach the game straight away
@@ -82,7 +97,11 @@ export function UnityGame() {
   }, []);
 
   return (
-    <main className="fixed inset-0 overflow-hidden bg-[#05070d]" style={{ touchAction: 'none', overscrollBehavior: 'none' }} onPointerDown={goLandscape}>
+    // The canvas stays inside the safe area: clear of the notch / Dynamic Island and the home bar on iPhones
+    // (the page is laid out edge to edge, viewport-fit=cover; the edges are just the background).
+    <main className="fixed inset-0 overflow-hidden bg-[#05070d]" onPointerDown={goLandscape}
+      style={{ touchAction: 'none', overscrollBehavior: 'none',
+        padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)' }}>
       <canvas ref={canvas} id="unity-canvas" tabIndex={-1} className="h-full w-full select-none outline-none"
         style={{ display: 'block', touchAction: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }} />
       {portrait && (
