@@ -9,3 +9,4 @@ canvas { display: block; }
 
 /* Sheet-music collection toast entrance. */
 @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes turnPhone { 0%, 25% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
