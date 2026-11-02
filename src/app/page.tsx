@@ -1,5 +1,5 @@
-import { GameShell } from '@/components/game/GameShell';
+import { UnityGame } from '@/components/UnityGame';
 
 export default function Home() {
-  return <main className="min-h-dvh bg-night"><GameShell /></main>;
+  return <UnityGame />;
 }
