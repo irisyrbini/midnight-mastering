@@ -123,7 +123,21 @@ export function UnityGame() {
             <img src="/unity/smiley.png" alt="" className="h-20 w-20 opacity-90" />
             <p className="text-5xl font-bold tracking-tight text-[#f0e8d9]">MMHA</p>
             <p className="text-[11px] font-bold tracking-[0.42em] text-[#dbc79a]">MAKE ME HAPPY AGAIN</p>
-            {failed ? (
+            {failed && /webgl/i.test(failed) ? (
+              // The browser couldn't open a 3D context: usually Chrome's hardware acceleration is off, or Chrome
+              // switched WebGL off after a graphics crash and needs a full restart to try again.
+              <div className="pointer-events-auto flex max-w-[44ch] flex-col items-center gap-3 text-sm text-[#f0e8d9]/70">
+                <p>This browser couldn&apos;t open 3D graphics (WebGL) right now.</p>
+                <p className="text-[#f0e8d9]/50">
+                  Quit the browser completely and open it again. In Chrome, also check Settings → System →
+                  &ldquo;Use graphics acceleration when available&rdquo; is on.
+                </p>
+                <button onClick={() => window.location.reload()}
+                  className="mt-1 rounded-full border border-[#dbc79a]/50 px-5 py-2 text-[#dbc79a] hover:bg-[#dbc79a]/10">
+                  Try again
+                </button>
+              </div>
+            ) : failed ? (
               <p className="max-w-[40ch] text-sm text-[#f0e8d9]/70">{failed}</p>
             ) : (
               <div className="mt-2 h-1 w-56 overflow-hidden rounded-full bg-white/10">
